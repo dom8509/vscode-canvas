@@ -75,7 +75,8 @@ open format Obsidian uses, so the files work in both.
   their properties, as in Excalidraw and tldraw: one of six colors or a custom one, and
   for connections the line and arrow styles below.
 - **Move and resize:** drag cards (they snap to the grid; hold **Alt** to
-  move freely); drag the bottom-right corner to resize. Arrow keys nudge the
+  move freely); drag any corner or side to resize. Free text
+  you make narrower keeps that width and wraps. Arrow keys nudge the
   selection.
 - **Select:** click; Shift-click adds; drag on the empty canvas draws a
   selection box. Ctrl/Cmd+A selects everything.

@@ -308,3 +308,22 @@ export function gridAround(at: Point, sizes: { width: number; height: number }[]
   const top = at.y - (rows * cellH - gap) / 2;
   return sizes.map((_, i) => ({ x: left + (i % cols) * cellW, y: top + Math.floor(i / cols) * cellH }));
 }
+
+/** Which way a resize handle pulls: -1 the left or top side, 1 the right or bottom side, 0 neither. */
+export type Pull = -1 | 0 | 1;
+
+/** Where the anchor lies along a side, from 0 (left or top) to 1 (right or bottom). A side handle keeps the top or left in place. */
+const anchorAt = (pull: Pull): number => (pull === -1 ? 1 : 0);
+
+/** The point that stays put while a card is resized by the handle at (`dx`, `dy`): the opposite corner or side, turned with the card. */
+export function resizeAnchor(r: Rect, dx: Pull, dy: Pull, turn: number): Point {
+  const p = { x: r.x + anchorAt(dx) * r.width, y: r.y + anchorAt(dy) * r.height };
+  return rotatePoint(p, center(r), turn);
+}
+
+/** The top-left corner of a card of the new size whose anchor stays at `anchor`. */
+export function resizedCorner(anchor: Point, width: number, height: number, dx: Pull, dy: Pull, turn: number): Point {
+  const fromCenter = { x: anchor.x - anchorAt(dx) * width + width / 2, y: anchor.y - anchorAt(dy) * height + height / 2 };
+  const c = rotatePoint(fromCenter, anchor, turn);
+  return { x: c.x - width / 2, y: c.y - height / 2 };
+}

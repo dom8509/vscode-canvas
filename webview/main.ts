@@ -8,6 +8,7 @@ import {
   type FileNode,
   type GroupNode,
   type Side,
+  type TextNode,
   FILLS,
   FONT_FAMILIES,
   FONT_SIZES,
@@ -45,7 +46,10 @@ import {
   headPath,
   headSvg,
   rectFromPoints,
+  type Pull,
   rectsIntersect,
+  resizeAnchor,
+  resizedCorner,
   rotatePoint,
   sideFacing,
   turnedSide,
@@ -430,9 +434,13 @@ function renderNodes(): void {
       h.dataset.side = side;
       el.append(h);
     }
-    const resize = document.createElement("div");
-    resize.className = "resize";
-    el.append(resize);
+    for (const [dir, dx, dy] of RESIZE_HANDLES) {
+      const h = document.createElement("div");
+      h.className = `resize resize-${dir}`;
+      h.dataset.dx = String(dx);
+      h.dataset.dy = String(dy);
+      el.append(h);
+    }
     if (canRotate(node)) {
       const turn = document.createElement("div");
       turn.className = "rotate";
@@ -475,21 +483,41 @@ function drawOutline(el: HTMLElement, node: CanvasNode): void {
   el.insertAdjacentHTML("afterbegin", svg);
 }
 
-/** Free text is as big as its text, as in Excalidraw. */
+/** The resize handles: four corners and four sides, with the way each one pulls. */
+const RESIZE_HANDLES: [string, Pull, Pull][] = [
+  ["nw", -1, -1], ["n", 0, -1], ["ne", 1, -1], ["e", 1, 0],
+  ["se", 1, 1], ["s", 0, 1], ["sw", -1, 1], ["w", -1, 0],
+];
+
+/** Free text is as big as its text, as in Excalidraw. Once resized by hand it keeps its width and wraps. */
 const measurer = document.createElement("div");
 measurer.className = "node free-text measure";
 
-function measureText(node: CanvasNode, html: string): { width: number; height: number } {
+function measureText(node: CanvasNode, html: string, width?: number): { width: number; height: number } {
   const look = nodeLook(node);
   measurer.className = `node free-text measure font-${look.fontSize} ff-${look.fontFamily}`;
   measurer.innerHTML = `<div class="content">${html || "&#8203;"}</div>`;
   if (!measurer.isConnected) nodesLayer.append(measurer);
   const content = measurer.firstElementChild as HTMLElement;
+  if (width !== undefined) content.style.cssText = `width: ${width - 2}px; max-width: none`;
   return { width: Math.ceil(content.offsetWidth) + 2, height: Math.ceil(content.offsetHeight) + 2 };
 }
 
+function isFreeText(node: CanvasNode): node is TextNode {
+  return node.type === "text" && nodeLook(node).shape === "text";
+}
+
+/** Free text whose width was set by hand: it wraps instead of growing. */
+function hasFixedWidth(node: CanvasNode): boolean {
+  return node.autoSize === false;
+}
+
 function fitFreeText(node: CanvasNode): void {
-  if (node.type !== "text" || nodeLook(node).shape !== "text") return;
+  if (!isFreeText(node)) return;
+  if (hasFixedWidth(node)) {
+    node.height = Math.max(20, node.height, measureText(node, renderMarkdown(node.text), node.width).height);
+    return;
+  }
   const size = measureText(node, renderMarkdown(node.text));
   node.width = Math.max(30, size.width);
   node.height = Math.max(20, size.height);
@@ -935,7 +963,12 @@ function startEditing(id: string): void {
   if (freeText) {
     // Grow with the text while typing.
     const grow = () => {
-      const size = measureText(node, `<div class="raw">${escapeHtml(field.value)}&#8203;</div>`);
+      const html = `<div class="raw">${escapeHtml(field.value)}&#8203;</div>`;
+      if (hasFixedWidth(node)) {
+        el.style.height = `${Math.max(20, node.height, measureText(node, html, node.width).height)}px`;
+        return;
+      }
+      const size = measureText(node, html);
       el.style.width = `${Math.max(30, size.width + 8)}px`;
       el.style.height = `${Math.max(20, size.height)}px`;
     };
@@ -1032,7 +1065,7 @@ type Drag =
   | { kind: "pan"; start: Point; view: View }
   | { kind: "marquee"; start: Point; additive: Set<string> }
   | { kind: "move"; start: Point; nodes: { node: CanvasNode; x: number; y: number }[]; moved: boolean; clickedId: string }
-  | { kind: "resize"; start: Point; node: CanvasNode; width: number; height: number; fixed: Point }
+  | { kind: "resize"; start: Point; node: CanvasNode; x: number; y: number; width: number; height: number; dx: Pull; dy: Pull; anchor: Point }
   | { kind: "rotate"; node: CanvasNode; center: Point; startAngle: number; rotation: number }
   | { kind: "connect"; from: CanvasNode; side: Side; preview: SVGPathElement }
   | { kind: "draw"; start: Point; shape: ShapeKind; preview: HTMLElement }
@@ -1087,9 +1120,11 @@ viewport.addEventListener("pointerdown", (e) => {
   }
 
   if (node && target.classList.contains("resize")) {
-    // The corner opposite the handle stays where it is, also on a turned card.
-    const fixed = rotatePoint({ x: node.x, y: node.y }, center(node), rotationOf(node));
-    drag = { kind: "resize", start: p, node, width: node.width, height: node.height, fixed };
+    // The corner or side opposite the handle stays where it is, also on a turned card.
+    const dx = Number(target.dataset.dx) as Pull;
+    const dy = Number(target.dataset.dy) as Pull;
+    const anchor = resizeAnchor(node, dx, dy, rotationOf(node));
+    drag = { kind: "resize", start: p, node, x: node.x, y: node.y, width: node.width, height: node.height, dx, dy, anchor };
     viewport.setPointerCapture(e.pointerId);
     return;
   }
@@ -1240,24 +1275,26 @@ viewport.addEventListener("pointermove", (e) => {
       break;
     }
     case "resize": {
-      const n = drag.node;
-      const minW = 60;
-      const minH = 40;
+      const { node: n, dx, dy } = drag;
+      const freeText = isFreeText(n);
       const turn = rotationOf(n);
-      if (turn) {
-        // Measure the drag along the card's own turned sides.
-        const local = rotatePoint({ x: p.x - drag.start.x, y: p.y - drag.start.y }, { x: 0, y: 0 }, -turn);
-        const w = Math.max(minW, drag.width + local.x);
-        const h = Math.max(minH, drag.height + local.y);
-        const c = rotatePoint({ x: drag.fixed.x + w / 2, y: drag.fixed.y + h / 2 }, drag.fixed, turn);
-        n.width = w;
-        n.height = h;
-        n.x = c.x - w / 2;
-        n.y = c.y - h / 2;
-      } else {
-        n.width = Math.max(minW, e.altKey ? drag.width + p.x - drag.start.x : snap(n.x + drag.width + p.x - drag.start.x, GRID) - n.x);
-        n.height = Math.max(minH, e.altKey ? drag.height + p.y - drag.start.y : snap(n.y + drag.height + p.y - drag.start.y, GRID) - n.y);
+      // Measure the drag along the card's own turned sides.
+      const local = rotatePoint({ x: p.x - drag.start.x, y: p.y - drag.start.y }, { x: 0, y: 0 }, -turn);
+      let w = drag.width + dx * local.x;
+      let h = drag.height + dy * local.y;
+      if (!turn && !e.altKey) {
+        // The moving side lands on the grid.
+        if (dx === 1) w = snap(drag.x + w, GRID) - drag.x;
+        if (dx === -1) w = drag.x + drag.width - snap(drag.x + drag.width - w, GRID);
+        if (dy === 1) h = snap(drag.y + h, GRID) - drag.y;
+        if (dy === -1) h = drag.y + drag.height - snap(drag.y + drag.height - h, GRID);
       }
+      w = Math.max(freeText ? 30 : 60, w);
+      // Free text is never cut off: it is at least as tall as its wrapped text.
+      const minH = isFreeText(n) ? measureText(n, renderMarkdown(n.text), w).height : 40;
+      h = Math.max(minH, h);
+      const corner = resizedCorner(drag.anchor, w, h, dx, dy, turn);
+      Object.assign(n, { width: w, height: h, x: corner.x, y: corner.y });
       const el = nodeElement(n.id);
       if (el) placeNode(el, n);
       renderEdges();
@@ -1333,6 +1370,7 @@ function endDrag(e: PointerEvent): void {
       break;
     case "resize":
       if (d.node.width !== d.width || d.node.height !== d.height) {
+        if (isFreeText(d.node) && d.node.width !== d.width) d.node.autoSize = false;
         commit();
       }
       break;
