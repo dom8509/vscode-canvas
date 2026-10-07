@@ -5,6 +5,11 @@
   "version": "0.1.0",
   "publisher": "dom8509",
   "license": "MIT",
+  "icon": "images/icon.png",
+  "galleryBanner": {
+    "color": "#2b2f77",
+    "theme": "dark"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/dom8509/vscode-canvas.git"
