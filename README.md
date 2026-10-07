@@ -10,12 +10,12 @@ open format Obsidian uses, so the files work in both.
 
 - **Create a canvas:** run *Canvas: New Canvas* from the Command Palette, or
   right-click a folder in the Explorer. Any `*.canvas` file opens on the canvas.
-- **Cards:** double-click the empty canvas to add a card and write in it
+- **Cards:** the card button in the bottom toolbar adds a card to write in
   (Markdown: headings, lists, tasks, **bold**, *italic*, `code`, links,
   `[[wikilinks]]`). Double-click a card to edit it; Escape or a click outside
   ends editing.
-- **Text:** the *T* button (or the **T** key) picks the text tool; click on
-  the canvas and type, as in Excalidraw. Free text has no box and grows with
+- **Text:** double-click the empty canvas, or pick the text tool with the *T*
+  button (or the **T** key) and click; then type, as in Excalidraw. Free text has no box and grows with
   what you write; the properties panel sets its size (S, M, L, XL) and color.
   Text left empty disappears.
 - **Shapes:** the shapes button opens 18 shapes, as in tldraw: rectangle,
@@ -26,15 +26,16 @@ open format Obsidian uses, so the files work in both.
   properties panel changes the shape, its fill (none, light, solid), color and
   text size. Shapes and free text are text cards in the file, so Obsidian
   shows them as ordinary cards.
-- **Fonts and borders:** for any text card, shape or free text the
+- **Fonts and borders:** for any text card, note, shape or free text the
   properties panel sets the font (sans serif, serif, monospace or
   handwriting) and the text size (S, M, L, XL). Cards and shapes also get a
-  border thickness (thin, normal, bold, extra bold). Connections have four
+  border thickness (thin, normal, bold, extra bold), and so do file cards
+  (pictures get the border only). Connections have four
   line widths too.
-- **Turn:** drag the round handle above a selected shape or free text to
-  turn it (hold **Shift** for 15° steps), or use the rotation buttons in the
-  properties panel (90° left, upright, 90° right). Connections follow the
-  turned sides. Obsidian shows turned cards upright.
+- **Turn:** drag the round handle above any selected card, note, link,
+  shape or free text to turn it (hold **Shift** for 15° steps). Groups stay
+  upright. Connections follow the turned sides. Obsidian shows turned cards
+  upright.
 - **Notes and media:** the file button in the bottom toolbar adds a file from
   the workspace. Markdown notes show their text, images show the picture.
   You can also drag notes and files onto the canvas — from the Explorer, an
@@ -75,7 +76,8 @@ open format Obsidian uses, so the files work in both.
   their properties, as in Excalidraw and tldraw: one of six colors or a custom one, and
   for connections the line and arrow styles below.
 - **Move and resize:** drag cards (they snap to the grid; hold **Alt** to
-  move freely); drag the bottom-right corner to resize. Arrow keys nudge the
+  move freely); drag any corner or side to resize. Free text
+  you make narrower keeps that width and wraps. Arrow keys nudge the
   selection.
 - **Select:** click; Shift-click adds; drag on the empty canvas draws a
   selection box. Ctrl/Cmd+A selects everything.

@@ -8,6 +8,7 @@ import {
   type FileNode,
   type GroupNode,
   type Side,
+  type TextNode,
   FILLS,
   FONT_FAMILIES,
   FONT_SIZES,
@@ -45,7 +46,10 @@ import {
   headPath,
   headSvg,
   rectFromPoints,
+  type Pull,
   rectsIntersect,
+  resizeAnchor,
+  resizedCorner,
   rotatePoint,
   sideFacing,
   turnedSide,
@@ -158,14 +162,6 @@ app.innerHTML = `
       <h3>Text</h3>
       ${segmentedLook("fontFamily", FONT_FAMILIES)}
       ${segmentedLook("fontSize", FONT_SIZES)}
-    </section>
-    <section class="rotate-tools">
-      <h3>Rotation</h3>
-      <div class="segmented">
-        <button data-rotate="-90" title="Turn left 90°">${icon("turn-left")}</button>
-        <button data-rotate="reset" class="angle" title="Upright">0°</button>
-        <button data-rotate="90" title="Turn right 90°">${icon("turn-right")}</button>
-      </div>
     </section>
     <section class="edge-tools">
       <h3>Line</h3>
@@ -302,8 +298,6 @@ function icon(name: string): string {
     image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/>',
     link: '<path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/>',
     type: '<path d="M5 6V4h14v2M12 4v16M9 20h6"/>',
-    "turn-left": '<path d="M4 4v5h5"/><path d="M4.5 9A8 8 0 1 1 6 17"/>',
-    "turn-right": '<path d="M20 4v5h-5"/><path d="M19.5 9A8 8 0 1 0 18 17"/>',
     shapes: '<rect x="3" y="3" width="10" height="10" rx="2"/><circle cx="16.5" cy="16.5" r="4.5"/>',
     group: '<rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="3 3"/><rect x="7" y="8" width="6" height="5" rx="1"/>',
     trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
@@ -416,11 +410,14 @@ function renderNodes(): void {
       const body = document.createElement("div");
       body.className = "content";
       el.append(body);
-      if (node.type === "text") {
+      if (node.type === "text" || node.type === "file") {
         const look = nodeLook(node);
         if (look.fontSize) el.classList.add(`font-${look.fontSize}`);
         if (look.fontFamily !== "sans") el.classList.add(`ff-${look.fontFamily}`);
         if (look.strokeWidth !== "normal") el.classList.add(`stroke-${look.strokeWidth}`);
+      }
+      if (node.type === "text") {
+        const look = nodeLook(node);
         if (look.shape === "text") el.classList.add("free-text");
         else if (look.shape !== "card") el.classList.add("shape", `fill-${look.fill}`);
         const empty = look.shape === "card" ? '<p class="placeholder">Double-click to write</p>' : "";
@@ -440,9 +437,13 @@ function renderNodes(): void {
       h.dataset.side = side;
       el.append(h);
     }
-    const resize = document.createElement("div");
-    resize.className = "resize";
-    el.append(resize);
+    for (const [dir, dx, dy] of RESIZE_HANDLES) {
+      const h = document.createElement("div");
+      h.className = `resize resize-${dir}`;
+      h.dataset.dx = String(dx);
+      h.dataset.dy = String(dy);
+      el.append(h);
+    }
     if (canRotate(node)) {
       const turn = document.createElement("div");
       turn.className = "rotate";
@@ -485,21 +486,41 @@ function drawOutline(el: HTMLElement, node: CanvasNode): void {
   el.insertAdjacentHTML("afterbegin", svg);
 }
 
-/** Free text is as big as its text, as in Excalidraw. */
+/** The resize handles: four corners and four sides, with the way each one pulls. */
+const RESIZE_HANDLES: [string, Pull, Pull][] = [
+  ["nw", -1, -1], ["n", 0, -1], ["ne", 1, -1], ["e", 1, 0],
+  ["se", 1, 1], ["s", 0, 1], ["sw", -1, 1], ["w", -1, 0],
+];
+
+/** Free text is as big as its text, as in Excalidraw. Once resized by hand it keeps its width and wraps. */
 const measurer = document.createElement("div");
 measurer.className = "node free-text measure";
 
-function measureText(node: CanvasNode, html: string): { width: number; height: number } {
+function measureText(node: CanvasNode, html: string, width?: number): { width: number; height: number } {
   const look = nodeLook(node);
   measurer.className = `node free-text measure font-${look.fontSize} ff-${look.fontFamily}`;
   measurer.innerHTML = `<div class="content">${html || "&#8203;"}</div>`;
   if (!measurer.isConnected) nodesLayer.append(measurer);
   const content = measurer.firstElementChild as HTMLElement;
+  if (width !== undefined) content.style.cssText = `width: ${width - 2}px; max-width: none`;
   return { width: Math.ceil(content.offsetWidth) + 2, height: Math.ceil(content.offsetHeight) + 2 };
 }
 
+function isFreeText(node: CanvasNode): node is TextNode {
+  return node.type === "text" && nodeLook(node).shape === "text";
+}
+
+/** Free text whose width was set by hand: it wraps instead of growing. */
+function hasFixedWidth(node: CanvasNode): boolean {
+  return node.autoSize === false;
+}
+
 function fitFreeText(node: CanvasNode): void {
-  if (node.type !== "text" || nodeLook(node).shape !== "text") return;
+  if (!isFreeText(node)) return;
+  if (hasFixedWidth(node)) {
+    node.height = Math.max(20, node.height, measureText(node, renderMarkdown(node.text), node.width).height);
+    return;
+  }
   const size = measureText(node, renderMarkdown(node.text));
   node.width = Math.max(30, size.width);
   node.height = Math.max(20, size.height);
@@ -604,9 +625,9 @@ function facingSide(node: CanvasNode, p: Point): Side {
   return sideFacing(node, rotatePoint(p, center(node), -rotationOf(node)));
 }
 
-/** Shapes and free text can be turned, as in tldraw. Obsidian's own cards stay upright. */
+/** Every card can be turned by its handle, as in tldraw. Groups stay upright, so what they hold stays inside. */
 function canRotate(node: CanvasNode): boolean {
-  return node.type === "text" && nodeLook(node).shape !== "card";
+  return node.type !== "group";
 }
 
 function renderEdges(): void {
@@ -685,17 +706,14 @@ function updateColorbar(): void {
   props.querySelectorAll<HTMLElement>("[data-style]").forEach((b) => {
     b.classList.toggle("active", shared(b.dataset.style as keyof EdgeStyle) === b.dataset.value);
   });
-  // Text, border and shape properties, for the text cards they apply to.
-  const looks = [...selection]
-    .map(nodeById)
-    .filter((n): n is CanvasNode => n?.type === "text")
-    .map(nodeLook);
+  // Text, border and shape properties, for the text and file cards they apply to. Pictures have no text to set.
+  const styled = [...selection].map(nodeById).filter((n): n is CanvasNode => n?.type === "text" || n?.type === "file");
+  const looks = styled.filter((n) => !(n.type === "file" && isImagePath(n.file))).map(nodeLook);
   const shapes = looks.filter((l) => l.shape !== "card" && l.shape !== "text");
-  const bordered = looks.filter((l) => l.shape !== "text");
+  const bordered = styled.map(nodeLook).filter((l) => l.shape !== "text");
   props.classList.toggle("has-shapes", shapes.length > 0);
   props.classList.toggle("has-text", looks.length > 0);
   props.classList.toggle("has-border", bordered.length > 0);
-  props.classList.toggle("has-rotate", looks.some((l) => l.shape !== "card"));
   const sharedLook = <K extends keyof NodeLook>(list: NodeLook[], key: K): NodeLook[K] | undefined =>
     list.every((l) => l[key] === list[0]?.[key]) ? list[0]?.[key] : undefined;
   const lookList: Record<keyof NodeLook, NodeLook[]> = {
@@ -714,9 +732,6 @@ function updateColorbar(): void {
   props.querySelectorAll<HTMLElement>("[data-drawing]").forEach((b) => {
     b.classList.toggle("active", b.dataset.drawing === sharedDrawing);
   });
-  const turns = [...selection].map(nodeById).filter((n): n is CanvasNode => !!n && canRotate(n)).map(rotationOf);
-  const sharedTurn = turns.length && turns.every((t) => t === turns[0]) ? turns[0]! : null;
-  props.querySelector<HTMLElement>(".angle")!.textContent = sharedTurn === null ? "–" : `${Math.round(sharedTurn)}°`;
   const shapePicker = props.querySelector<HTMLElement>('[data-menu="shape"]')!;
   const sharedShape = sharedLook(shapes, "shape");
   shapePicker.innerHTML = `${sharedShape ? shapeIcon(sharedShape as ShapeKind) : "<span>Mixed</span>"}<span class="caret"></span>`;
@@ -753,15 +768,6 @@ function closeHeadMenu(): void {
   props.querySelectorAll(".picker.open").forEach((p) => p.classList.remove("open"));
 }
 
-/** Turns the selected shapes and free text by a step, or sets them upright. */
-function rotateSelected(step: string): void {
-  for (const id of selection) {
-    const node = nodeById(id);
-    if (node && canRotate(node)) setRotation(node, step === "reset" ? 0 : rotationOf(node) + Number(step));
-  }
-  commit();
-}
-
 /** The fill picked last. New shapes get it, as edges get their last style. */
 let shapeDefaults: Partial<NodeLook> = {};
 
@@ -770,10 +776,10 @@ function setSelectedNodeLook(look: Partial<NodeLook>): void {
   if (look.fill) shapeDefaults = { ...shapeDefaults, fill: look.fill };
   for (const id of selection) {
     const node = nodeById(id);
-    if (node?.type !== "text") continue;
+    if (node?.type !== "text" && node?.type !== "file") continue;
     const kind = nodeLook(node).shape;
-    // Text settings fit every text card; a border not free text; shape and fill only shapes.
-    const part: Partial<NodeLook> = { fontSize: look.fontSize, fontFamily: look.fontFamily };
+    // Text settings fit every text card and note; a border not free text; shape and fill only shapes.
+    const part: Partial<NodeLook> = node.type === "file" && isImagePath(node.file) ? {} : { fontSize: look.fontSize, fontFamily: look.fontFamily };
     if (kind !== "text") part.strokeWidth = look.strokeWidth;
     if (kind !== "text" && kind !== "card") Object.assign(part, { shape: look.shape, fill: look.fill });
     const given = Object.fromEntries(Object.entries(part).filter(([, v]) => v !== undefined));
@@ -829,6 +835,13 @@ function addNode(node: CanvasNode, edit = false): void {
 
 function textNodeAt(p: Point, text = ""): CanvasNode {
   return { id: newId(), type: "text", text, x: snap(p.x - 125, GRID), y: snap(p.y - 30, GRID), width: 260, height: 80 };
+}
+
+/** Empty free text whose first line starts at `p`, as in Excalidraw. Left empty, it disappears again. */
+function freeTextAt(p: Point): CanvasNode {
+  const node: CanvasNode = { id: newId(), type: "text", text: "", x: p.x - 6, y: p.y - 14, width: 40, height: 28 };
+  setNodeLook(node, { shape: "text" });
+  return node;
 }
 
 function fileNodeAt(p: Point, file: string): CanvasNode {
@@ -958,7 +971,12 @@ function startEditing(id: string): void {
   if (freeText) {
     // Grow with the text while typing.
     const grow = () => {
-      const size = measureText(node, `<div class="raw">${escapeHtml(field.value)}&#8203;</div>`);
+      const html = `<div class="raw">${escapeHtml(field.value)}&#8203;</div>`;
+      if (hasFixedWidth(node)) {
+        el.style.height = `${Math.max(20, node.height, measureText(node, html, node.width).height)}px`;
+        return;
+      }
+      const size = measureText(node, html);
       el.style.width = `${Math.max(30, size.width + 8)}px`;
       el.style.height = `${Math.max(20, size.height)}px`;
     };
@@ -1055,7 +1073,7 @@ type Drag =
   | { kind: "pan"; start: Point; view: View }
   | { kind: "marquee"; start: Point; additive: Set<string> }
   | { kind: "move"; start: Point; nodes: { node: CanvasNode; x: number; y: number }[]; moved: boolean; clickedId: string }
-  | { kind: "resize"; start: Point; node: CanvasNode; width: number; height: number; fixed: Point }
+  | { kind: "resize"; start: Point; node: CanvasNode; x: number; y: number; width: number; height: number; dx: Pull; dy: Pull; anchor: Point }
   | { kind: "rotate"; node: CanvasNode; center: Point; startAngle: number; rotation: number }
   | { kind: "connect"; from: CanvasNode; side: Side; preview: SVGPathElement }
   | { kind: "draw"; start: Point; shape: ShapeKind; preview: HTMLElement }
@@ -1110,9 +1128,11 @@ viewport.addEventListener("pointerdown", (e) => {
   }
 
   if (node && target.classList.contains("resize")) {
-    // The corner opposite the handle stays where it is, also on a turned card.
-    const fixed = rotatePoint({ x: node.x, y: node.y }, center(node), rotationOf(node));
-    drag = { kind: "resize", start: p, node, width: node.width, height: node.height, fixed };
+    // The corner or side opposite the handle stays where it is, also on a turned card.
+    const dx = Number(target.dataset.dx) as Pull;
+    const dy = Number(target.dataset.dy) as Pull;
+    const anchor = resizeAnchor(node, dx, dy, rotationOf(node));
+    drag = { kind: "resize", start: p, node, x: node.x, y: node.y, width: node.width, height: node.height, dx, dy, anchor };
     viewport.setPointerCapture(e.pointerId);
     return;
   }
@@ -1263,24 +1283,26 @@ viewport.addEventListener("pointermove", (e) => {
       break;
     }
     case "resize": {
-      const n = drag.node;
-      const minW = 60;
-      const minH = 40;
+      const { node: n, dx, dy } = drag;
+      const freeText = isFreeText(n);
       const turn = rotationOf(n);
-      if (turn) {
-        // Measure the drag along the card's own turned sides.
-        const local = rotatePoint({ x: p.x - drag.start.x, y: p.y - drag.start.y }, { x: 0, y: 0 }, -turn);
-        const w = Math.max(minW, drag.width + local.x);
-        const h = Math.max(minH, drag.height + local.y);
-        const c = rotatePoint({ x: drag.fixed.x + w / 2, y: drag.fixed.y + h / 2 }, drag.fixed, turn);
-        n.width = w;
-        n.height = h;
-        n.x = c.x - w / 2;
-        n.y = c.y - h / 2;
-      } else {
-        n.width = Math.max(minW, e.altKey ? drag.width + p.x - drag.start.x : snap(n.x + drag.width + p.x - drag.start.x, GRID) - n.x);
-        n.height = Math.max(minH, e.altKey ? drag.height + p.y - drag.start.y : snap(n.y + drag.height + p.y - drag.start.y, GRID) - n.y);
+      // Measure the drag along the card's own turned sides.
+      const local = rotatePoint({ x: p.x - drag.start.x, y: p.y - drag.start.y }, { x: 0, y: 0 }, -turn);
+      let w = drag.width + dx * local.x;
+      let h = drag.height + dy * local.y;
+      if (!turn && !e.altKey) {
+        // The moving side lands on the grid.
+        if (dx === 1) w = snap(drag.x + w, GRID) - drag.x;
+        if (dx === -1) w = drag.x + drag.width - snap(drag.x + drag.width - w, GRID);
+        if (dy === 1) h = snap(drag.y + h, GRID) - drag.y;
+        if (dy === -1) h = drag.y + drag.height - snap(drag.y + drag.height - h, GRID);
       }
+      w = Math.max(freeText ? 30 : 60, w);
+      // Free text is never cut off: it is at least as tall as its wrapped text.
+      const minH = isFreeText(n) ? measureText(n, renderMarkdown(n.text), w).height : 40;
+      h = Math.max(minH, h);
+      const corner = resizedCorner(drag.anchor, w, h, dx, dy, turn);
+      Object.assign(n, { width: w, height: h, x: corner.x, y: corner.y });
       const el = nodeElement(n.id);
       if (el) placeNode(el, n);
       renderEdges();
@@ -1356,14 +1378,13 @@ function endDrag(e: PointerEvent): void {
       break;
     case "resize":
       if (d.node.width !== d.width || d.node.height !== d.height) {
+        if (isFreeText(d.node) && d.node.width !== d.width) d.node.autoSize = false;
         commit();
       }
       break;
     case "text": {
-      const node: CanvasNode = { id: newId(), type: "text", text: "", x: d.start.x - 6, y: d.start.y - 14, width: 40, height: 28 };
-      setNodeLook(node, { shape: "text" });
       setTool(null);
-      addNode(node, true);
+      addNode(freeTextAt(d.start), true);
       break;
     }
     case "rotate":
@@ -1433,7 +1454,7 @@ viewport.addEventListener("dblclick", (e) => {
   const node = nodeEl && nodeById(nodeEl.dataset.id!);
   if (node) {
     if (node.type === "file") post({ type: "openFile", path: node.file, subpath: node.subpath });
-    else if (node.type === "group" && insideGroupBody(node, p) && !target.closest(".group-label")) addNode(textNodeAt(p), true);
+    else if (node.type === "group" && insideGroupBody(node, p) && !target.closest(".group-label")) addNode(freeTextAt(p), true);
     else startEditing(node.id);
     return;
   }
@@ -1442,7 +1463,7 @@ viewport.addEventListener("dblclick", (e) => {
     editEdgeLabel((edgeEl as HTMLElement).dataset.id!);
     return;
   }
-  addNode(textNodeAt(p), true);
+  addNode(freeTextAt(p), true);
 });
 
 viewport.addEventListener(
@@ -1676,7 +1697,6 @@ app.addEventListener("click", (e) => {
   const button = (e.target as HTMLElement).closest<HTMLElement>("button");
   if (!button || viewport.contains(button)) return;
   if (button.dataset.color !== undefined) return setColor(button.dataset.color);
-  if (button.dataset.rotate) return rotateSelected(button.dataset.rotate);
   if (button.dataset.shape) return setTool({ kind: "shape", shape: button.dataset.shape as ShapeKind });
   if (button.dataset.look) {
     if (button.parentElement === headMenu) closeHeadMenu();

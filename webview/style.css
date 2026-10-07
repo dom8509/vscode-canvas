@@ -365,6 +365,10 @@ button {
 .connect.side-bottom { left: 50%; top: 100%; }
 .connect.side-left { left: 0; top: 50%; }
 
+/* Free text is low, so its side dots sit a little outside and leave the sides free for resizing. */
+.node.free-text > .connect.side-right { left: calc(100% + 14px); }
+.node.free-text > .connect.side-left { left: -14px; }
+
 .node:hover > .connect,
 .node.selected > .connect {
   opacity: 1;
@@ -375,25 +379,44 @@ button {
   display: none;
 }
 
+/* Resize handles: a square on each corner, and a thin strip along each side under the connection dot. */
 .resize {
   position: absolute;
-  right: -6px;
-  bottom: -6px;
+  z-index: 1;
+}
+
+.resize-n, .resize-s { left: 8px; right: 8px; height: 10px; cursor: ns-resize; }
+.resize-e, .resize-w { top: 8px; bottom: 8px; width: 10px; cursor: ew-resize; }
+.resize-n { top: -5px; }
+.resize-s { bottom: -5px; }
+.resize-e { right: -5px; }
+.resize-w { left: -5px; }
+
+.resize-nw, .resize-ne, .resize-se, .resize-sw {
   width: 14px;
   height: 14px;
-  cursor: nwse-resize;
   z-index: 2;
 }
 
-.node.selected > .resize::after {
+.resize-nw { left: -7px; top: -7px; cursor: nwse-resize; }
+.resize-se { right: -7px; bottom: -7px; cursor: nwse-resize; }
+.resize-ne { right: -7px; top: -7px; cursor: nesw-resize; }
+.resize-sw { left: -7px; bottom: -7px; cursor: nesw-resize; }
+
+.node.selected > .resize-nw::after,
+.node.selected > .resize-ne::after,
+.node.selected > .resize-se::after,
+.node.selected > .resize-sw::after {
   content: "";
   position: absolute;
-  right: 4px;
-  bottom: 4px;
-  width: 7px;
-  height: 7px;
-  border-right: 2px solid var(--accent);
-  border-bottom: 2px solid var(--accent);
+  left: 3px;
+  top: 3px;
+  width: 8px;
+  height: 8px;
+  box-sizing: border-box;
+  background: var(--vscode-editor-background);
+  border: 1.5px solid var(--accent);
+  border-radius: 2px;
 }
 
 /* ------------------------------------------------------------ edges */
@@ -600,7 +623,6 @@ button {
 #props:not(.has-shapes) .shape-tools,
 #props:not(.has-text) .text-tools,
 #props:not(.has-border) .border-tools,
-#props:not(.has-rotate) .rotate-tools,
 #shape-menu[hidden],
 #head-menu[hidden] {
   display: none;
@@ -923,11 +945,6 @@ button {
   color: var(--node-color);
 }
 
-.node.free-text > .resize,
-.node.free-text.selected > .resize::after {
-  display: none;
-}
-
 .node.free-text .content > :first-child {
   margin-top: 0;
 }
@@ -1065,11 +1082,6 @@ button {
 
 .node.editing > .rotate {
   display: none;
-}
-
-#props .angle {
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
 }
 
 /* ------------------------------------------------------------ fonts and borders */

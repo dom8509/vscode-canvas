@@ -321,9 +321,9 @@ const LOOK_DEFAULTS: Record<keyof NodeLook, string> = {
   strokeWidth: "normal",
 };
 
-/** Sets part of a text card's look. Defaults are left out of the file. */
+/** Sets part of the look of a text card or a file card. Defaults are left out of the file. */
 export function setNodeLook(node: CanvasNode, look: Partial<NodeLook>): void {
-  if (node.type !== "text") return;
+  if (node.type !== "text" && node.type !== "file") return;
   for (const [key, value] of Object.entries(look) as [keyof NodeLook, string | undefined][]) {
     if (!value || value === LOOK_DEFAULTS[key]) delete node[key];
     else node[key] = value;
