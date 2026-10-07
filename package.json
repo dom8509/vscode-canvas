@@ -74,6 +74,26 @@
         "icon": "$(open-preview)"
       }
     ],
+    "configuration": {
+      "title": "Canvas",
+      "properties": {
+        "canvas.drawingStyle": {
+          "type": "string",
+          "enum": [
+            "architect",
+            "artist",
+            "cartoonist"
+          ],
+          "default": "artist",
+          "enumDescriptions": [
+            "Clean, technical lines.",
+            "Lightly hand-drawn lines, as in Excalidraw.",
+            "Very sketchy lines."
+          ],
+          "description": "How canvases are drawn, unless a canvas or one of its cards or edges names its own style (\"style\" in the .canvas file)."
+        }
+      }
+    },
     "menus": {
       "explorer/context": [
         {

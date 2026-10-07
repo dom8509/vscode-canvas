@@ -62,6 +62,15 @@ open format Obsidian uses, so the files work in both.
   or right-angled paths, and the shape at each end (none, arrow, open arrow,
   dot, bar, diamond), as in Excalidraw. New connections take the style you
   picked last. Obsidian shows the extra styles as plain lines and arrows.
+- **Drawing styles:** the canvas is white paper, and its lines are drawn with
+  [Rough.js](https://roughjs.com) in one of Excalidraw's three styles:
+  *architect* (clean, technical lines), *artist* (lightly hand-drawn, the
+  default) or *cartoonist* (very sketchy). The setting `canvas.drawingStyle`
+  sets it for all canvases; the wavy-line button at the top right sets it for
+  one canvas (`"style"` at the top of the file); the *Style* row in the
+  properties panel sets it for single cards and connections (`"style"` on
+  them). The most specific one wins. The data stays the same: only the
+  drawing changes, and each element looks the same on every redraw.
 - **Properties:** select cards or connections and a panel on the left shows
   their properties, as in Excalidraw and tldraw: one of six colors or a custom one, and
   for connections the line and arrow styles below.

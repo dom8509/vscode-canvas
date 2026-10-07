@@ -425,6 +425,14 @@ button {
   cursor: pointer;
 }
 
+.drawing-icon path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .edge .fill {
   fill: var(--edge-color);
   stroke: none;

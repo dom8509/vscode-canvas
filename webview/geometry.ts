@@ -184,29 +184,40 @@ export function pointAlong(points: Point[], t: number): Point {
   return points[points.length - 1]!;
 }
 
-/** SVG markup for the head of an edge whose tip is at `tip`, pointing along `dir`. Filled shapes use class "fill", lines "stroke". */
-export function headSvg(shape: HeadShape, tip: Point, dir: Point, size: number): string {
+/**
+ * The outline of the head of an edge whose tip is at `tip`, pointing along
+ * `dir`, as SVG path data. Filled heads (arrow, dot, diamond) are closed.
+ */
+export function headPath(shape: HeadShape, tip: Point, dir: Point, size: number): { d: string; filled: boolean } | undefined {
   const at = (back: number, side: number): Point => ({
     x: tip.x - dir.x * back - dir.y * side,
     y: tip.y - dir.y * back + dir.x * side,
   });
-  const pts = (...ps: Point[]) => ps.map((p) => `${p.x},${p.y}`).join(" ");
+  const line = (...ps: Point[]) => "M " + ps.map((p) => `${p.x} ${p.y}`).join(" L ");
   switch (shape) {
     case "none":
-      return "";
+      return undefined;
     case "arrow":
-      return `<polygon class="fill" points="${arrowHead(tip, dir, size)}"/>`;
+      return { d: "M " + arrowHead(tip, dir, size).replace(/,/g, " ").split(" ").reduce((d, n, k) => d + (k && k % 2 === 0 ? " L " : " ") + n) + " Z", filled: true };
     case "open":
-      return `<polyline class="stroke" points="${pts(at(size, size * 0.55), tip, at(size, -size * 0.55))}"/>`;
+      return { d: line(at(size, size * 0.55), tip, at(size, -size * 0.55)), filled: false };
     case "dot": {
       const c = at(size * 0.4, 0);
-      return `<circle class="fill" cx="${c.x}" cy="${c.y}" r="${size * 0.4}"/>`;
+      const r = size * 0.4;
+      return { d: `M ${c.x - r} ${c.y} A ${r} ${r} 0 1 0 ${c.x + r} ${c.y} A ${r} ${r} 0 1 0 ${c.x - r} ${c.y} Z`, filled: true };
     }
     case "bar":
-      return `<polyline class="stroke" points="${pts(at(0, size * 0.55), at(0, -size * 0.55))}"/>`;
+      return { d: line(at(0, size * 0.55), at(0, -size * 0.55)), filled: false };
     case "diamond":
-      return `<polygon class="fill" points="${pts(tip, at(size * 0.6, size * 0.4), at(size * 1.2, 0), at(size * 0.6, -size * 0.4))}"/>`;
+      return { d: line(tip, at(size * 0.6, size * 0.4), at(size * 1.2, 0), at(size * 0.6, -size * 0.4)) + " Z", filled: true };
   }
+}
+
+/** SVG markup for the head of an edge whose tip is at `tip`, pointing along `dir`. Filled shapes use class "fill", lines "stroke". */
+export function headSvg(shape: HeadShape, tip: Point, dir: Point, size: number): string {
+  const head = headPath(shape, tip, dir, size);
+  if (!head) return "";
+  return `<path class="${head.filled ? "fill" : "stroke"}" d="${head.d}"/>`;
 }
 
 function neg(p: Point): Point {

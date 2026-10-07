@@ -1,21 +1,19 @@
-// Hand-drawn strokes, as in Excalidraw: each line is drawn with rough.js,
-// seeded by the element's id so it keeps the same wobble on every redraw.
+// Strokes for the canvas's geometric elements (shape and card outlines,
+// edges, arrowheads), drawn with rough.js in a drawing style. Each element
+// passes a seed from its id, so it keeps the same wobble on every redraw.
+//
+// Real freehand drawing, if it comes, would use perfect-freehand instead;
+// rough.js stays the base for the structured elements.
 
 import rough from "roughjs";
+import { DRAWING_STYLES, type DrawingStyleName } from "./drawingStyles";
 
 const generator = rough.generator();
 
-/** A stable seed for rough.js from an id. */
-export function seedOf(id: string): number {
-  let h = 2166136261;
-  for (let k = 0; k < id.length; k++) h = Math.imul(h ^ id.charCodeAt(k), 16777619);
-  return (h >>> 0) % 2147483646 + 1;
-}
-
-/** SVG path data that traces `d` twice with a slight wobble, like a pen sketch. */
-export function sketchPath(d: string, seed: number, strokeWidth = 2): string {
+/** SVG path data that traces `d` in the drawing style `style`. */
+export function sketchPath(d: string, seed: number, style: DrawingStyleName): string {
   if (!d) return "";
-  const drawable = generator.path(d, { seed, strokeWidth, roughness: 1, bowing: 1, fill: undefined });
+  const drawable = generator.path(d, { ...DRAWING_STYLES[style], seed });
   return generator
     .toPaths(drawable)
     .map((p) => p.d)

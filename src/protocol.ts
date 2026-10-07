@@ -10,7 +10,9 @@ export type HostMessage =
   | { type: "load"; text: string }
   | { type: "files"; files: Record<string, FileInfo> }
   | { type: "picked"; paths: string[] }
-  | { type: "dropped"; items: DroppedItem[]; x: number; y: number };
+  | { type: "dropped"; items: DroppedItem[]; x: number; y: number }
+  /** The extension's settings. `drawingStyle` is the style canvases use unless they name their own. */
+  | { type: "settings"; drawingStyle: string };
 
 /** A dropped file becomes a file card when it lies in the workspace, otherwise a text card with its contents. */
 export type DroppedItem = { kind: "file"; path: string } | { kind: "text"; text: string };

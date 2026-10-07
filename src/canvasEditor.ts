@@ -41,6 +41,9 @@ export class CanvasEditorProvider implements vscode.CustomTextEditorProvider {
       post({ type: "load", text });
     };
 
+    const sendSettings = () =>
+      post({ type: "settings", drawingStyle: vscode.workspace.getConfiguration("canvas").get("drawingStyle", "artist") });
+
     const track = () => {
       if (panel.active) CanvasEditorProvider.activeUri = document.uri;
     };
@@ -48,6 +51,9 @@ export class CanvasEditorProvider implements vscode.CustomTextEditorProvider {
 
     const subs: vscode.Disposable[] = [
       panel.onDidChangeViewState(track),
+      vscode.workspace.onDidChangeConfiguration((e) => {
+        if (e.affectsConfiguration("canvas.drawingStyle")) sendSettings();
+      }),
       vscode.workspace.onDidChangeTextDocument((e) => {
         if (e.document.uri.toString() === document.uri.toString() && e.contentChanges.length > 0) sendDocument();
       }),
@@ -55,6 +61,7 @@ export class CanvasEditorProvider implements vscode.CustomTextEditorProvider {
         switch (msg.type) {
           case "ready":
             shown = undefined;
+            sendSettings();
             sendDocument();
             break;
           case "edit": {

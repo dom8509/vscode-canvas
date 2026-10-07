@@ -68,7 +68,7 @@ describe("edge paths", () => {
   it("draws every head shape, and nothing for none", () => {
     expect(headSvg("none", { x: 0, y: 0 }, { x: 1, y: 0 }, 10)).toBe("");
     for (const shape of ["arrow", "open", "dot", "bar", "diamond"] as const) {
-      expect(headSvg(shape, { x: 0, y: 0 }, { x: 1, y: 0 }, 10)).toMatch(/^<(polygon|polyline|circle) /);
+      expect(headSvg(shape, { x: 0, y: 0 }, { x: 1, y: 0 }, 10)).toMatch(/^<path class="(fill|stroke)" d="M /);
     }
   });
 });
