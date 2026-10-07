@@ -550,7 +550,7 @@ button {
   display: flex;
   flex-direction: column;
   width: 176px;
-  max-height: calc(100% - 96px);
+  max-height: calc(100% - 24px);
   padding: 0 10px;
   box-sizing: border-box;
   border-radius: 12px;
@@ -573,6 +573,8 @@ button {
 #props:not(.has-edges) .edge-tools,
 #props:not(.has-shapes) .shape-tools,
 #props:not(.has-text) .text-tools,
+#props:not(.has-border) .border-tools,
+#props:not(.has-rotate) .rotate-tools,
 #shape-menu[hidden],
 #head-menu[hidden] {
   display: none;
@@ -582,7 +584,7 @@ button {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 10px 0;
+  padding: 8px 0;
 }
 
 #props section + section {
@@ -1037,4 +1039,73 @@ button {
 #props .angle {
   font-size: 11px;
   font-variant-numeric: tabular-nums;
+}
+
+/* ------------------------------------------------------------ fonts and borders */
+
+@font-face {
+  font-family: "Caveat";
+  src: url("fonts/caveat-400.woff2") format("woff2");
+  font-weight: 400;
+  font-display: block;
+}
+
+@font-face {
+  font-family: "Caveat";
+  src: url("fonts/caveat-700.woff2") format("woff2");
+  font-weight: 700;
+  font-display: block;
+}
+
+.ff-serif .content,
+.ff-serif .editor,
+.ff-sample.ff-serif {
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+.ff-mono .content,
+.ff-mono .editor,
+.ff-sample.ff-mono {
+  font-family: var(--vscode-editor-font-family, monospace);
+}
+
+/* Caveat runs small: a little bigger keeps it as readable as the others. */
+.ff-hand .content,
+.ff-hand .editor,
+.ff-sample.ff-hand {
+  font-family: "Caveat", cursive;
+  font-size-adjust: 0.5;
+}
+
+.ff-sample {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.ff-sans .editor {
+  font-family: var(--vscode-font-family);
+}
+
+.node.type-text.stroke-thin:not(.shape):not(.free-text) {
+  border-width: 1px;
+}
+
+.node.type-text.stroke-bold:not(.shape):not(.free-text) {
+  border-width: 4px;
+}
+
+.node.type-text.stroke-extra:not(.shape):not(.free-text) {
+  border-width: 6px;
+}
+
+.stroke-thin .shape-outline path {
+  stroke-width: 1.5px;
+}
+
+.stroke-bold .shape-outline path {
+  stroke-width: 4.5px;
+}
+
+.stroke-extra .shape-outline path {
+  stroke-width: 7px;
 }

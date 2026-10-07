@@ -6,7 +6,13 @@ const card = (): CanvasNode => ({ id: "n", type: "text", text: "", x: 0, y: 0, w
 
 describe("nodeLook", () => {
   it("reads a plain card as a card", () => {
-    expect(nodeLook(card())).toEqual({ shape: "card", fill: "semi", fontSize: "m" });
+    expect(nodeLook(card())).toEqual({
+      shape: "card",
+      fill: "semi",
+      fontSize: undefined,
+      fontFamily: "sans",
+      strokeWidth: "normal",
+    });
   });
 
   it("reads shapes and free text, and ignores unknown ones", () => {
@@ -23,10 +29,19 @@ describe("nodeLook", () => {
 describe("setNodeLook", () => {
   it("stores only what differs from a plain card", () => {
     const n = card();
-    setNodeLook(n, { shape: "ellipse", fill: "none", fontSize: "l" });
-    expect(n).toMatchObject({ shape: "ellipse", fill: "none", fontSize: "l" });
-    setNodeLook(n, { shape: "card", fill: "semi", fontSize: "m" });
+    setNodeLook(n, { shape: "ellipse", fill: "none", fontSize: "l", fontFamily: "hand", strokeWidth: "extra" });
+    expect(n).toMatchObject({ shape: "ellipse", fill: "none", fontSize: "l", fontFamily: "hand", strokeWidth: "extra" });
+    setNodeLook(n, { shape: "card", fill: "semi", fontSize: undefined, fontFamily: "sans", strokeWidth: "normal" });
     expect(n).toEqual(card());
+  });
+
+  it("gives shapes a medium font, but leaves a plain card's font to the editor", () => {
+    expect(nodeLook({ ...card(), shape: "star" }).fontSize).toBe("m");
+    expect(nodeLook({ ...card(), fontSize: "xl" }).fontSize).toBe("xl");
+    expect(nodeLook({ ...card(), fontFamily: "comic", strokeWidth: "huge" })).toMatchObject({
+      fontFamily: "sans",
+      strokeWidth: "normal",
+    });
   });
 });
 

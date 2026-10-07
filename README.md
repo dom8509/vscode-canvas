@@ -26,6 +26,11 @@ open format Obsidian uses, so the files work in both.
   properties panel changes the shape, its fill (none, light, solid), color and
   text size. Shapes and free text are text cards in the file, so Obsidian
   shows them as ordinary cards.
+- **Fonts and borders:** for any text card, shape or free text the
+  properties panel sets the font (sans serif, serif, monospace or
+  handwriting) and the text size (S, M, L, XL). Cards and shapes also get a
+  border thickness (thin, normal, bold, extra bold). Connections have four
+  line widths too.
 - **Turn:** drag the round handle above a selected shape or free text to
   turn it (hold **Shift** for 15° steps), or use the rotation buttons in the
   properties panel (90° left, upright, 90° right). Connections follow the
@@ -92,4 +97,5 @@ Press **F5** in VS Code to start an Extension Development Host with the
 
 ## License
 
-MIT
+MIT. The handwriting font, [Caveat](https://github.com/googlefonts/caveat),
+is under the SIL Open Font License (`webview/fonts/Caveat-OFL.txt`).

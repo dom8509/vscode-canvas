@@ -209,12 +209,12 @@ export function uniqueFileName(name: string, taken: (name: string) => boolean): 
 
 export type HeadShape = "none" | "arrow" | "open" | "dot" | "bar" | "diamond";
 export type LineStyle = "solid" | "dashed" | "dotted";
-export type LineWidth = "thin" | "normal" | "bold";
+export type LineWidth = "thin" | "normal" | "bold" | "extra";
 export type PathStyle = "curved" | "straight" | "elbow";
 
 export const HEAD_SHAPES: HeadShape[] = ["none", "arrow", "open", "dot", "bar", "diamond"];
 export const LINE_STYLES: LineStyle[] = ["solid", "dashed", "dotted"];
-export const LINE_WIDTHS: LineWidth[] = ["thin", "normal", "bold"];
+export const LINE_WIDTHS: LineWidth[] = ["thin", "normal", "bold", "extra"];
 export const PATH_STYLES: PathStyle[] = ["curved", "straight", "elbow"];
 
 /** The look of an edge, with the defaults filled in. */
@@ -277,6 +277,7 @@ export type ShapeKind =
   | "arrow-right" | "arrow-left" | "arrow-up" | "arrow-down" | "x-box" | "check-box";
 export type Fill = "none" | "semi" | "solid";
 export type FontSize = "s" | "m" | "l" | "xl";
+export type FontFamily = "sans" | "serif" | "mono" | "hand";
 
 export const SHAPES: ShapeKind[] = [
   "rectangle", "ellipse", "triangle", "diamond", "pentagon", "hexagon",
@@ -285,30 +286,46 @@ export const SHAPES: ShapeKind[] = [
 ];
 export const FILLS: Fill[] = ["none", "semi", "solid"];
 export const FONT_SIZES: FontSize[] = ["s", "m", "l", "xl"];
+export const FONT_FAMILIES: FontFamily[] = ["sans", "serif", "mono", "hand"];
 
-/** How a text card is drawn, with the defaults filled in. "card" is a plain Obsidian card. */
+/**
+ * How a text card is drawn, with the defaults filled in. "card" is a plain
+ * Obsidian card. Its font size is undefined until set: it keeps the editor's size.
+ */
 export interface NodeLook {
   shape: ShapeKind | "text" | "card";
   fill: Fill;
-  fontSize: FontSize;
+  fontSize: FontSize | undefined;
+  fontFamily: FontFamily;
+  /** The border of a card or the outline of a shape. */
+  strokeWidth: LineWidth;
 }
 
 export function nodeLook(node: CanvasNode): NodeLook {
   const shape = node.type !== "text" ? "card" : node.shape === "text" ? "text" : oneOf(SHAPES, node.shape, "card" as ShapeKind);
+  const size = FONT_SIZES.includes(node.fontSize as FontSize) ? (node.fontSize as FontSize) : undefined;
   return {
     shape: shape as NodeLook["shape"],
     fill: oneOf(FILLS, node.fill, "semi"),
-    fontSize: oneOf(FONT_SIZES, node.fontSize, "m"),
+    fontSize: size ?? (shape === "card" ? undefined : "m"),
+    fontFamily: oneOf(FONT_FAMILIES, node.fontFamily, "sans"),
+    strokeWidth: oneOf(LINE_WIDTHS, node.strokeWidth, "normal"),
   };
 }
 
-const LOOK_DEFAULTS: Record<keyof NodeLook, string> = { shape: "card", fill: "semi", fontSize: "m" };
+const LOOK_DEFAULTS: Record<keyof NodeLook, string> = {
+  shape: "card",
+  fill: "semi",
+  fontSize: "",
+  fontFamily: "sans",
+  strokeWidth: "normal",
+};
 
 /** Sets part of a text card's look. Defaults are left out of the file. */
 export function setNodeLook(node: CanvasNode, look: Partial<NodeLook>): void {
   if (node.type !== "text") return;
-  for (const [key, value] of Object.entries(look) as [keyof NodeLook, string][]) {
-    if (value === LOOK_DEFAULTS[key]) delete node[key];
+  for (const [key, value] of Object.entries(look) as [keyof NodeLook, string | undefined][]) {
+    if (!value || value === LOOK_DEFAULTS[key]) delete node[key];
     else node[key] = value;
   }
 }

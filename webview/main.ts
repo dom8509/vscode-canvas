@@ -9,6 +9,7 @@ import {
   type GroupNode,
   type Side,
   FILLS,
+  FONT_FAMILIES,
   FONT_SIZES,
   HEAD_SHAPES,
   LINE_STYLES,
@@ -68,7 +69,7 @@ const SIDES: Side[] = ["top", "right", "bottom", "left"];
 const SVG_NS = "http://www.w3.org/2000/svg";
 /** How much of a note a card shows. */
 const PREVIEW_CHARS = 4000;
-const WIDTHS: Record<EdgeStyle["lineWidth"], number> = { thin: 1.5, normal: 2.5, bold: 4.5 };
+const WIDTHS: Record<EdgeStyle["lineWidth"], number> = { thin: 1.5, normal: 2.5, bold: 4.5, extra: 7 };
 const FILL_ICONS: Record<string, string> = {
   none: '<rect x="5" y="3" width="18" height="16" rx="3" fill="none"/>',
   semi: '<rect x="5" y="3" width="18" height="16" rx="3" fill="currentColor" fill-opacity="0.3"/>',
@@ -136,17 +137,22 @@ app.innerHTML = `
       <div class="pickers"><button class="picker" data-menu="shape" title="Shape"></button></div>
       ${segmentedLook("fill", FILLS)}
     </section>
+    <section class="border-tools">
+      <h3>Border</h3>
+      ${segmentedLook("strokeWidth", LINE_WIDTHS)}
+    </section>
     <section class="text-tools">
+      <h3>Text</h3>
+      ${segmentedLook("fontFamily", FONT_FAMILIES)}
+      ${segmentedLook("fontSize", FONT_SIZES)}
+    </section>
+    <section class="rotate-tools">
       <h3>Rotation</h3>
       <div class="segmented">
         <button data-rotate="-90" title="Turn left 90°">${icon("turn-left")}</button>
         <button data-rotate="reset" class="angle" title="Upright">0°</button>
         <button data-rotate="90" title="Turn right 90°">${icon("turn-right")}</button>
       </div>
-    </section>
-    <section class="text-tools">
-      <h3>Text size</h3>
-      ${segmentedLook("fontSize", FONT_SIZES)}
     </section>
     <section class="edge-tools">
       <h3>Line</h3>
@@ -208,7 +214,7 @@ function styleIcon(part: Partial<EdgeStyle>): string {
   if (part.pathStyle === "elbow") d = "M 5 16 L 16 16 L 16 6 L 27 6";
   const heads =
     headSvg(style.fromHead, { x: 4, y: 11 }, { x: -1, y: 0 }, 9) + headSvg(style.toHead, { x: 28, y: 11 }, { x: 1, y: 0 }, 9);
-  return `<svg class="style-icon" viewBox="0 0 32 22" width="32" height="22" style="--edge-width: ${Math.min(width, 3.5)}px">
+  return `<svg class="style-icon" viewBox="0 0 32 22" width="32" height="22" style="--edge-width: ${Math.min(width * 0.8, 5)}px">
     <path class="stroke" d="${d}" stroke-dasharray="${dash}"/>${heads}</svg>`;
 }
 
@@ -238,8 +244,17 @@ function segmentedLook(key: keyof NodeLook, values: readonly string[]): string {
       const face =
         key === "fill"
           ? `<svg class="style-icon" viewBox="0 0 28 22"><g stroke="currentColor" stroke-width="1.8">${FILL_ICONS[v]}</g></svg>`
-          : `<span class="size-label">${v.toUpperCase()}</span>`;
-      const name = key === "fill" ? `${title(v)} fill` : { s: "Small", m: "Medium", l: "Large", xl: "Extra large" }[v];
+          : key === "strokeWidth"
+            ? styleIcon({ lineWidth: v as EdgeStyle["lineWidth"] })
+            : key === "fontFamily"
+              ? `<span class="ff-sample ff-${v}">Aa</span>`
+              : `<span class="size-label">${v.toUpperCase()}</span>`;
+      const names: Record<string, string> = {
+        s: "Small", m: "Medium", l: "Large", xl: "Extra large",
+        sans: "Sans serif", serif: "Serif", mono: "Monospace", hand: "Handwriting",
+        thin: "Thin", normal: "Normal", bold: "Bold", extra: "Extra bold",
+      };
+      const name = key === "fill" ? `${title(v)} fill` : names[v];
       return `<button data-look="${key}" data-value="${v}" title="${name}">${face}</button>`;
     })
     .join("");
@@ -368,7 +383,9 @@ function renderNodes(): void {
       el.append(body);
       if (node.type === "text") {
         const look = nodeLook(node);
-        if (look.shape !== "card") el.classList.add(`font-${look.fontSize}`);
+        if (look.fontSize) el.classList.add(`font-${look.fontSize}`);
+        if (look.fontFamily !== "sans") el.classList.add(`ff-${look.fontFamily}`);
+        if (look.strokeWidth !== "normal") el.classList.add(`stroke-${look.strokeWidth}`);
         if (look.shape === "text") el.classList.add("free-text");
         else if (look.shape !== "card") el.classList.add("shape", `fill-${look.fill}`);
         const empty = look.shape === "card" ? '<p class="placeholder">Double-click to write</p>' : "";
@@ -430,7 +447,8 @@ const measurer = document.createElement("div");
 measurer.className = "node free-text measure";
 
 function measureText(node: CanvasNode, html: string): { width: number; height: number } {
-  measurer.className = `node free-text measure font-${nodeLook(node).fontSize}`;
+  const look = nodeLook(node);
+  measurer.className = `node free-text measure font-${look.fontSize} ff-${look.fontFamily}`;
   measurer.innerHTML = `<div class="content">${html || "&#8203;"}</div>`;
   if (!measurer.isConnected) nodesLayer.append(measurer);
   const content = measurer.firstElementChild as HTMLElement;
@@ -620,20 +638,29 @@ function updateColorbar(): void {
   props.querySelectorAll<HTMLElement>("[data-style]").forEach((b) => {
     b.classList.toggle("active", shared(b.dataset.style as keyof EdgeStyle) === b.dataset.value);
   });
-  // Shape and text properties, for shaped cards and free text.
+  // Text, border and shape properties, for the text cards they apply to.
   const looks = [...selection]
     .map(nodeById)
     .filter((n): n is CanvasNode => n?.type === "text")
-    .map(nodeLook)
-    .filter((l) => l.shape !== "card");
-  const shapes = looks.filter((l) => l.shape !== "text");
+    .map(nodeLook);
+  const shapes = looks.filter((l) => l.shape !== "card" && l.shape !== "text");
+  const bordered = looks.filter((l) => l.shape !== "text");
   props.classList.toggle("has-shapes", shapes.length > 0);
   props.classList.toggle("has-text", looks.length > 0);
+  props.classList.toggle("has-border", bordered.length > 0);
+  props.classList.toggle("has-rotate", looks.some((l) => l.shape !== "card"));
   const sharedLook = <K extends keyof NodeLook>(list: NodeLook[], key: K): NodeLook[K] | undefined =>
     list.every((l) => l[key] === list[0]?.[key]) ? list[0]?.[key] : undefined;
+  const lookList: Record<keyof NodeLook, NodeLook[]> = {
+    shape: shapes,
+    fill: shapes,
+    strokeWidth: bordered,
+    fontSize: looks,
+    fontFamily: looks,
+  };
   props.querySelectorAll<HTMLElement>("[data-look]").forEach((b) => {
     const key = b.dataset.look as keyof NodeLook;
-    b.classList.toggle("active", sharedLook(key === "fontSize" ? looks : shapes, key) === b.dataset.value);
+    b.classList.toggle("active", sharedLook(lookList[key], key) === b.dataset.value);
   });
   const turns = [...selection].map(nodeById).filter((n): n is CanvasNode => !!n && canRotate(n)).map(rotationOf);
   const sharedTurn = turns.length && turns.every((t) => t === turns[0]) ? turns[0]! : null;
@@ -691,11 +718,15 @@ function setSelectedNodeLook(look: Partial<NodeLook>): void {
   if (look.fill) shapeDefaults = { ...shapeDefaults, fill: look.fill };
   for (const id of selection) {
     const node = nodeById(id);
-    const current = node && nodeLook(node);
-    if (!node || !current || current.shape === "card") continue;
-    // A shape stays a shape and free text stays text; fill only applies to shapes.
-    if (current.shape === "text" && (look.shape || look.fill)) continue;
-    setNodeLook(node, look);
+    if (node?.type !== "text") continue;
+    const kind = nodeLook(node).shape;
+    // Text settings fit every text card; a border not free text; shape and fill only shapes.
+    const part: Partial<NodeLook> = { fontSize: look.fontSize, fontFamily: look.fontFamily };
+    if (kind !== "text") part.strokeWidth = look.strokeWidth;
+    if (kind !== "text" && kind !== "card") Object.assign(part, { shape: look.shape, fill: look.fill });
+    const given = Object.fromEntries(Object.entries(part).filter(([, v]) => v !== undefined));
+    if (!Object.keys(given).length) continue;
+    setNodeLook(node, given);
     fitFreeText(node);
   }
   commit();
