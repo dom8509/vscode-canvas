@@ -39,6 +39,7 @@ import {
   snap,
   zoomAt,
 } from "./geometry";
+import { sectionText } from "../src/subpath";
 import { escapeHtml, renderMarkdown, stripFrontMatter } from "./markdown";
 
 declare function acquireVsCodeApi(): {
@@ -53,6 +54,8 @@ const post = (msg: WebviewMessage) => vscode.postMessage(msg);
 const GRID = 20;
 const SIDES: Side[] = ["top", "right", "bottom", "left"];
 const SVG_NS = "http://www.w3.org/2000/svg";
+/** How much of a note a card shows. */
+const PREVIEW_CHARS = 4000;
 const WIDTHS: Record<EdgeStyle["lineWidth"], number> = { thin: 1.5, normal: 2.5, bold: 4.5 };
 
 // ---------------------------------------------------------------- state
@@ -361,11 +364,19 @@ function renderFile(el: HTMLElement, body: HTMLElement, node: FileNode, missing:
       body.append(img);
       break;
     }
-    case "text":
-      body.innerHTML = /\.(md|markdown)$/i.test(node.file)
-        ? renderMarkdown(stripFrontMatter(info.text))
-        : `<pre><code>${escapeHtml(info.text)}</code></pre>`;
+    case "text": {
+      if (!/\.(md|markdown)$/i.test(node.file)) {
+        body.innerHTML = `<pre><code>${escapeHtml(info.text.slice(0, PREVIEW_CHARS))}</code></pre>`;
+        break;
+      }
+      // "Note.md#Heading" or "#^block" shows only that part of the note, as in Obsidian.
+      const text = sectionText(info.text, node.subpath);
+      body.innerHTML =
+        text === undefined
+          ? `<p class="placeholder">No ${escapeHtml(node.subpath!)} in this note.</p>`
+          : renderMarkdown(stripFrontMatter(text).slice(0, PREVIEW_CHARS));
       break;
+    }
     case "other":
       body.innerHTML = `<p class="placeholder">${escapeHtml(node.file)}</p>`;
       break;
@@ -985,7 +996,7 @@ viewport.addEventListener("dblclick", (e) => {
   const nodeEl = target.closest<HTMLElement>(".node");
   const node = nodeEl && nodeById(nodeEl.dataset.id!);
   if (node) {
-    if (node.type === "file") post({ type: "openFile", path: node.file });
+    if (node.type === "file") post({ type: "openFile", path: node.file, subpath: node.subpath });
     else if (node.type === "group" && insideGroupBody(node, p) && !target.closest(".group-label")) addNode(textNodeAt(p), true);
     else startEditing(node.id);
     return;

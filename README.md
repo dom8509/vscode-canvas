@@ -19,8 +19,10 @@ open format Obsidian uses, so the files work in both.
   You can also drag notes and files onto the canvas — from the Explorer, an
   editor tab or your file manager (hold **Shift** while dropping; VS Code
   needs it). Several files land in a grid; a folder brings the files in it.
-  Notes from outside the workspace come in as text cards. Double-click a file
-  card to open the file beside the canvas.
+  Notes from outside the workspace come in as text cards. A card for
+  `Note.md#Heading` (or `#Heading#Subheading`, or a block `#^id`) shows only
+  that part of the note, as in Obsidian. Double-click a file card to open the
+  file beside the canvas, at that heading.
 - **Images:** the image button in the bottom toolbar picks images from
   anywhere on your computer. You can also paste an image (Ctrl/Cmd+V, e.g. a
   screenshot) or drop image files from your file manager. Images from outside

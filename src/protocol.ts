@@ -26,7 +26,7 @@ export type WebviewMessage =
   | { type: "ready" }
   | { type: "edit"; text: string }
   | { type: "resolve"; paths: string[] }
-  | { type: "openFile"; path: string }
+  | { type: "openFile"; path: string; subpath?: string }
   | { type: "openLink"; href: string }
   | { type: "pickFile" }
   | { type: "pickImages" }

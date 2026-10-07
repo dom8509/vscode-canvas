@@ -1,11 +1,11 @@
 import * as vscode from "vscode";
 import { imageFileName, isImagePath, isTextPath, uniqueFileName } from "./jsonCanvas";
+import { findSection } from "./subpath";
 import type { DroppedItem, FileInfo, HostMessage, ImageData, WebviewMessage } from "./protocol";
 
 const MAX_DROPPED_FILES = 50;
 const EXCLUDED = "{**/node_modules/**,**/.git/**,**/*.canvas}";
 const MAX_PREVIEW_BYTES = 1_000_000;
-const PREVIEW_CHARS = 4000;
 const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "bmp", "svg", "webp", "avif"];
 
 /** Opens .canvas files in the canvas webview. The file stays a text document, so save, undo on disk and dirty state come from VS Code. */
@@ -72,9 +72,7 @@ export class CanvasEditorProvider implements vscode.CustomTextEditorProvider {
             break;
           }
           case "openFile":
-            await vscode.commands.executeCommand("vscode.open", this.fileUri(root, msg.path), {
-              viewColumn: vscode.ViewColumn.Beside,
-            });
+            await this.openFile(root, msg.path, msg.subpath);
             break;
           case "openLink":
             await this.openLink(root, msg.href);
@@ -136,7 +134,8 @@ export class CanvasEditorProvider implements vscode.CustomTextEditorProvider {
     if (isImagePath(path)) return { kind: "image", src: webview.asWebviewUri(uri).toString() };
     if (!isTextPath(path) || stat.size > MAX_PREVIEW_BYTES) return { kind: "other" };
     const bytes = await vscode.workspace.fs.readFile(uri);
-    return { kind: "text", text: new TextDecoder().decode(bytes).slice(0, PREVIEW_CHARS) };
+    // The whole text: a card with a subpath shows a section from anywhere in it.
+    return { kind: "text", text: new TextDecoder().decode(bytes) };
   }
 
   /** What to put on the canvas for dropped files and folders. A folder brings the files in it. */
@@ -232,6 +231,21 @@ export class CanvasEditorProvider implements vscode.CustomTextEditorProvider {
       return undefined;
     }
     return relativeTo(root, target);
+  }
+
+  /** Opens a file beside the canvas, at the heading or block a subpath names. */
+  private async openFile(root: vscode.Uri, path: string, subpath?: string): Promise<void> {
+    const uri = this.fileUri(root, path);
+    let selection: vscode.Range | undefined;
+    if (subpath && isTextPath(path)) {
+      try {
+        const section = findSection(new TextDecoder().decode(await vscode.workspace.fs.readFile(uri)), subpath);
+        if (section) selection = new vscode.Range(section.start, 0, section.start, 0);
+      } catch {
+        // Open it anyway; VS Code shows why it cannot.
+      }
+    }
+    await vscode.commands.executeCommand("vscode.open", uri, { viewColumn: vscode.ViewColumn.Beside, selection });
   }
 
   private async openLink(root: vscode.Uri, href: string): Promise<void> {
