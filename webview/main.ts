@@ -30,6 +30,10 @@ import {
   setEdgeStyle,
   setNodeLook,
   setRotation,
+  setTextScale,
+  textScaleOf,
+  MAX_TEXT_SCALE,
+  MIN_TEXT_SCALE,
 } from "../src/jsonCanvas";
 import type { DroppedItem, FileInfo, HostMessage, ImageData, WebviewMessage } from "../src/protocol";
 import {
@@ -462,6 +466,9 @@ function placeNode(el: HTMLElement, node: CanvasNode): void {
   el.style.height = `${node.height}px`;
   const turn = rotationOf(node);
   el.style.transform = turn ? `rotate(${turn}deg)` : "";
+  const scale = isFreeText(node) ? textScaleOf(node) : 1;
+  if (scale !== 1) el.style.setProperty("--text-scale", String(scale));
+  else el.style.removeProperty("--text-scale");
   if (el.dataset.drawn) drawOutline(el, node);
 }
 
@@ -499,6 +506,7 @@ measurer.className = "node free-text measure";
 function measureText(node: CanvasNode, html: string, width?: number): { width: number; height: number } {
   const look = nodeLook(node);
   measurer.className = `node free-text measure font-${look.fontSize} ff-${look.fontFamily}`;
+  measurer.style.setProperty("--text-scale", String(textScaleOf(node)));
   measurer.innerHTML = `<div class="content">${html || "&#8203;"}</div>`;
   if (!measurer.isConnected) nodesLayer.append(measurer);
   const content = measurer.firstElementChild as HTMLElement;
@@ -1073,7 +1081,7 @@ type Drag =
   | { kind: "pan"; start: Point; view: View }
   | { kind: "marquee"; start: Point; additive: Set<string> }
   | { kind: "move"; start: Point; nodes: { node: CanvasNode; x: number; y: number }[]; moved: boolean; clickedId: string }
-  | { kind: "resize"; start: Point; node: CanvasNode; x: number; y: number; width: number; height: number; dx: Pull; dy: Pull; anchor: Point }
+  | { kind: "resize"; start: Point; node: CanvasNode; x: number; y: number; width: number; height: number; dx: Pull; dy: Pull; anchor: Point; scale: number }
   | { kind: "rotate"; node: CanvasNode; center: Point; startAngle: number; rotation: number }
   | { kind: "connect"; from: CanvasNode; side: Side; preview: SVGPathElement }
   | { kind: "draw"; start: Point; shape: ShapeKind; preview: HTMLElement }
@@ -1132,7 +1140,8 @@ viewport.addEventListener("pointerdown", (e) => {
     const dx = Number(target.dataset.dx) as Pull;
     const dy = Number(target.dataset.dy) as Pull;
     const anchor = resizeAnchor(node, dx, dy, rotationOf(node));
-    drag = { kind: "resize", start: p, node, x: node.x, y: node.y, width: node.width, height: node.height, dx, dy, anchor };
+    const scale = textScaleOf(node);
+    drag = { kind: "resize", start: p, node, x: node.x, y: node.y, width: node.width, height: node.height, dx, dy, anchor, scale };
     viewport.setPointerCapture(e.pointerId);
     return;
   }
@@ -1290,6 +1299,20 @@ viewport.addEventListener("pointermove", (e) => {
       const local = rotatePoint({ x: p.x - drag.start.x, y: p.y - drag.start.y }, { x: 0, y: 0 }, -turn);
       let w = drag.width + dx * local.x;
       let h = drag.height + dy * local.y;
+      if (freeText && dx && dy) {
+        // A corner of free text scales it, text and all, as in Excalidraw.
+        let ratio = Math.max(w / drag.width, h / drag.height);
+        ratio = Math.min(MAX_TEXT_SCALE, Math.max(MIN_TEXT_SCALE, drag.scale * ratio)) / drag.scale;
+        w = drag.width * ratio;
+        h = drag.height * ratio;
+        setTextScale(n, drag.scale * ratio);
+        const corner = resizedCorner(drag.anchor, w, h, dx, dy, turn);
+        Object.assign(n, { width: w, height: h, x: corner.x, y: corner.y });
+        const el = nodeElement(n.id);
+        if (el) placeNode(el, n);
+        renderEdges();
+        break;
+      }
       if (!turn && !e.altKey) {
         // The moving side lands on the grid.
         if (dx === 1) w = snap(drag.x + w, GRID) - drag.x;
@@ -1377,7 +1400,15 @@ function endDrag(e: PointerEvent): void {
       }
       break;
     case "resize":
-      if (d.node.width !== d.width || d.node.height !== d.height) {
+      if (textScaleOf(d.node) !== d.scale) {
+        // Scaled text keeps its wrapping; fit the box to the text at its new size.
+        const n = d.node;
+        const before = resizeAnchor(n, d.dx, d.dy, rotationOf(n));
+        fitFreeText(n);
+        const corner = resizedCorner(before, n.width, n.height, d.dx, d.dy, rotationOf(n));
+        Object.assign(n, { x: corner.x, y: corner.y });
+        commit();
+      } else if (d.node.width !== d.width || d.node.height !== d.height) {
         if (isFreeText(d.node) && d.node.width !== d.width) d.node.autoSize = false;
         commit();
       }

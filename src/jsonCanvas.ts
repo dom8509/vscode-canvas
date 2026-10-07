@@ -330,6 +330,21 @@ export function setNodeLook(node: CanvasNode, look: Partial<NodeLook>): void {
   }
 }
 
+/** How much bigger free text is drawn than its font size, after being scaled by a corner handle. 1 is its normal size. */
+export function textScaleOf(node: CanvasNode): number {
+  const s = node.textScale;
+  return typeof s === "number" && Number.isFinite(s) && s > 0 ? s : 1;
+}
+
+export function setTextScale(node: CanvasNode, scale: number): void {
+  const s = Math.round(Math.min(MAX_TEXT_SCALE, Math.max(MIN_TEXT_SCALE, scale)) * 1000) / 1000;
+  if (s === 1) delete node.textScale;
+  else node.textScale = s;
+}
+
+export const MIN_TEXT_SCALE = 0.25;
+export const MAX_TEXT_SCALE = 20;
+
 /** An angle in degrees, brought into (-180, 180]. */
 export function normalizeAngle(deg: number): number {
   let r = ((deg % 360) + 360) % 360;
