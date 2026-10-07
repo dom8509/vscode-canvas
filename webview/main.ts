@@ -52,6 +52,7 @@ import {
   zoomAt,
 } from "./geometry";
 import { sectionText } from "../src/subpath";
+import { seedOf, sketchPath } from "./sketch";
 import { escapeHtml, renderMarkdown, stripFrontMatter } from "./markdown";
 import { defaultShapeSize, shapeMarks, shapePath } from "./shapes";
 
@@ -390,7 +391,6 @@ function renderNodes(): void {
         else if (look.shape !== "card") el.classList.add("shape", `fill-${look.fill}`);
         const empty = look.shape === "card" ? '<p class="placeholder">Double-click to write</p>' : "";
         body.innerHTML = renderMarkdown(node.text) || empty;
-        if (look.shape !== "card" && look.shape !== "text") drawShape(el, node);
       } else if (node.type === "file") {
         renderFile(el, body, node, missing);
       } else {
@@ -398,6 +398,7 @@ function renderNodes(): void {
       }
       nodesLayer.append(el);
     }
+    drawOutline(el, node);
 
     for (const side of SIDES) {
       const h = document.createElement("div");
@@ -426,18 +427,25 @@ function placeNode(el: HTMLElement, node: CanvasNode): void {
   el.style.height = `${node.height}px`;
   const turn = rotationOf(node);
   el.style.transform = turn ? `rotate(${turn}deg)` : "";
-  if (el.classList.contains("shape")) drawShape(el, node);
+  if (el.dataset.drawn) drawOutline(el, node);
 }
 
-/** The outline of a shaped card, redrawn when its size changes. */
-function drawShape(el: HTMLElement, node: CanvasNode): void {
-  const shape = nodeLook(node).shape as ShapeKind;
-  const key = `${shape} ${node.width} ${node.height}`;
+/** The hand-drawn outline of a card or shape, redrawn when its size changes. Free text has none. */
+function drawOutline(el: HTMLElement, node: CanvasNode): void {
+  if (el.classList.contains("free-text")) return;
+  const shaped = el.classList.contains("shape");
+  const shape = (shaped ? nodeLook(node).shape : "rectangle") as ShapeKind;
+  const { width: w, height: h } = node;
+  const key = `${shape} ${w} ${h}`;
   if (el.dataset.drawn === key) return;
   el.dataset.drawn = key;
-  const marks = shapeMarks(shape, node.width, node.height, 2);
-  const svg = `<svg class="shape-outline" viewBox="0 0 ${node.width} ${node.height}" width="${node.width}" height="${node.height}">
-    <path class="outline" d="${shapePath(shape, node.width, node.height, 2)}"/>${marks ? `<path class="marks" d="${marks}"/>` : ""}</svg>`;
+  const seed = seedOf(node.id);
+  const outline = shapePath(shape, w, h, 2);
+  const marks = shapeMarks(shape, w, h, 2);
+  const svg = `<svg class="shape-outline" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}">
+    ${shaped ? `<path class="outline" d="${outline}"/>` : ""}<path class="sketch" d="${sketchPath(outline, seed)}"/>${
+      marks ? `<path class="marks" d="${sketchPath(marks, seed + 1)}"/>` : ""
+    }</svg>`;
   el.querySelector(".shape-outline")?.remove();
   el.insertAdjacentHTML("afterbegin", svg);
 }
@@ -586,7 +594,7 @@ function renderEdges(): void {
     hit.setAttribute("d", geo.d);
     hit.classList.add("hit");
     const path = document.createElementNS(SVG_NS, "path");
-    path.setAttribute("d", geo.d);
+    path.setAttribute("d", sketchPath(geo.d, seedOf(edge.id), width));
     path.classList.add("line");
     if (dash) path.setAttribute("stroke-dasharray", dash);
     g.append(hit, path);
