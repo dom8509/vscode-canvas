@@ -6,13 +6,14 @@ import {
   type GroupNode,
   type Side,
   cssColor,
+  isImageFile,
   isImagePath,
   isTextPath,
   newId,
   parseCanvas,
   serializeCanvas,
 } from "../src/jsonCanvas";
-import type { DroppedItem, FileInfo, HostMessage, WebviewMessage } from "../src/protocol";
+import type { DroppedItem, FileInfo, HostMessage, ImageData, WebviewMessage } from "../src/protocol";
 import {
   type Point,
   type Rect,
@@ -82,6 +83,7 @@ app.innerHTML = `
   <div id="toolbar">
     <button data-action="text" title="Add card (or double-click the canvas)">${icon("card")}</button>
     <button data-action="file" title="Add note or media from the workspace">${icon("file")}</button>
+    <button data-action="image" title="Add image (or paste one with Ctrl+V)">${icon("image")}</button>
     <button data-action="link" title="Add web page">${icon("link")}</button>
     <button data-action="group" title="Add group (around the selection, if any)">${icon("group")}</button>
   </div>
@@ -117,6 +119,7 @@ function icon(name: string): string {
   const paths: Record<string, string> = {
     card: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9h10M7 13h7"/>',
     file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
+    image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/>',
     link: '<path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/>',
     group: '<rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="3 3"/><rect x="7" y="8" width="6" height="5" rx="1"/>',
     trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
@@ -989,6 +992,8 @@ document.addEventListener("paste", (e) => {
   if (editing || (e.target as HTMLElement).closest?.("input, textarea")) return;
   e.preventDefault();
   const at = pointerOrCenter();
+  const images = [...(e.clipboardData?.files ?? [])].filter((f) => isImageFile(f.type, f.name));
+  if (images.length) return void saveImages(images, at);
   const text = e.clipboardData?.getData("text/plain");
   if (text) pasteText(text, at);
   else if (clipboard) paste(clipboard, at);
@@ -1050,18 +1055,38 @@ function droppedUris(dt: DataTransfer): string[] {
   return [];
 }
 
-/** Files from the operating system without a path: notes come in as text cards. */
+/** Files from the operating system without a path: images are saved next to the canvas, notes come in as text cards. */
 async function dropOsFiles(list: File[], at: Point): Promise<void> {
-  const notes = list.filter((f) => isTextPath(f.name) || f.type.startsWith("text/"));
+  const images = list.filter((f) => isImageFile(f.type, f.name));
+  const notes = list.filter((f) => !images.includes(f) && (isTextPath(f.name) || f.type.startsWith("text/")));
+  if (images.length) await saveImages(images, at);
   const items: DroppedItem[] = await Promise.all(notes.map(async (f) => ({ kind: "text" as const, text: await f.text() })));
   if (items.length) placeDropped(items, at);
-  const skipped = list.length - notes.length;
+  const skipped = list.length - images.length - notes.length;
   if (skipped) {
     post({
       type: "notify",
-      text: `${skipped} dropped ${skipped === 1 ? "file" : "files"} could not be added. Put images and other files in the workspace first, then drag them from the Explorer.`,
+      text: `${skipped} dropped ${skipped === 1 ? "file" : "files"} could not be added. Put other files in the workspace first, then drag them from the Explorer.`,
     });
   }
+}
+
+const MAX_IMAGE_BYTES = 50_000_000;
+
+/** Sends pasted or dropped images to the host, which saves them and answers with file cards. */
+async function saveImages(list: File[], at: Point): Promise<void> {
+  const fitting = list.filter((f) => f.size <= MAX_IMAGE_BYTES);
+  if (fitting.length < list.length) post({ type: "notify", text: "Images over 50 MB are not added." });
+  const images: ImageData[] = await Promise.all(
+    fitting.map(async (f) => ({ name: f.name, mime: f.type, base64: toBase64(new Uint8Array(await f.arrayBuffer())) })),
+  );
+  if (images.length) post({ type: "saveImages", images, x: at.x, y: at.y });
+}
+
+function toBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(binary);
 }
 
 function droppedNodeAt(p: Point, item: DroppedItem): CanvasNode {
@@ -1094,6 +1119,8 @@ app.addEventListener("click", (e) => {
       return addNode(textNodeAt(viewportCenter()), true);
     case "file":
       return post({ type: "pickFile" });
+    case "image":
+      return post({ type: "pickImages" });
     case "link":
       return addNode(linkNodeAt(viewportCenter(), ""), true);
     case "group":
@@ -1155,7 +1182,7 @@ window.addEventListener("message", (e: MessageEvent<HostMessage>) => {
       render();
       break;
     case "picked":
-      addNode(fileNodeAt(viewportCenter(), msg.path));
+      placeDropped(msg.paths.map((path) => ({ kind: "file", path })), viewportCenter());
       break;
     case "dropped":
       placeDropped(msg.items, msg);

@@ -1,11 +1,12 @@
 import * as vscode from "vscode";
-import { isImagePath, isTextPath } from "./jsonCanvas";
-import type { DroppedItem, FileInfo, HostMessage, WebviewMessage } from "./protocol";
+import { imageFileName, isImagePath, isTextPath, uniqueFileName } from "./jsonCanvas";
+import type { DroppedItem, FileInfo, HostMessage, ImageData, WebviewMessage } from "./protocol";
 
 const MAX_DROPPED_FILES = 50;
 const EXCLUDED = "{**/node_modules/**,**/.git/**,**/*.canvas}";
 const MAX_PREVIEW_BYTES = 1_000_000;
 const PREVIEW_CHARS = 4000;
+const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "bmp", "svg", "webp", "avif"];
 
 /** Opens .canvas files in the canvas webview. The file stays a text document, so save, undo on disk and dirty state come from VS Code. */
 export class CanvasEditorProvider implements vscode.CustomTextEditorProvider {
@@ -16,7 +17,9 @@ export class CanvasEditorProvider implements vscode.CustomTextEditorProvider {
 
   async resolveCustomTextEditor(document: vscode.TextDocument, panel: vscode.WebviewPanel): Promise<void> {
     const webview = panel.webview;
-    const root = vscode.workspace.getWorkspaceFolder(document.uri)?.uri ?? vscode.Uri.joinPath(document.uri, "..");
+    // Images from outside the workspace are saved next to the canvas.
+    const folder = vscode.Uri.joinPath(document.uri, "..");
+    const root = vscode.workspace.getWorkspaceFolder(document.uri)?.uri ?? folder;
     webview.options = {
       enableScripts: true,
       localResourceRoots: [
@@ -78,11 +81,21 @@ export class CanvasEditorProvider implements vscode.CustomTextEditorProvider {
             break;
           case "pickFile": {
             const path = await this.pickFile(root);
-            if (path) post({ type: "picked", path });
+            if (path) post({ type: "picked", paths: [path] });
+            break;
+          }
+          case "pickImages": {
+            const paths = await this.pickImages(root, folder);
+            if (paths.length) post({ type: "picked", paths });
+            break;
+          }
+          case "saveImages": {
+            const items = await this.saveImages(root, folder, msg.images);
+            if (items.length) post({ type: "dropped", items, x: msg.x, y: msg.y });
             break;
           }
           case "dropUris": {
-            const items = await this.dropItems(root, msg.uris);
+            const items = await this.dropItems(root, folder, msg.uris);
             if (items.length) post({ type: "dropped", items, x: msg.x, y: msg.y });
             break;
           }
@@ -127,7 +140,7 @@ export class CanvasEditorProvider implements vscode.CustomTextEditorProvider {
   }
 
   /** What to put on the canvas for dropped files and folders. A folder brings the files in it. */
-  private async dropItems(root: vscode.Uri, uris: string[]): Promise<DroppedItem[]> {
+  private async dropItems(root: vscode.Uri, folder: vscode.Uri, uris: string[]): Promise<DroppedItem[]> {
     const items: DroppedItem[] = [];
     let skipped = 0;
     for (const raw of uris) {
@@ -152,9 +165,12 @@ export class CanvasEditorProvider implements vscode.CustomTextEditorProvider {
           items.push({ kind: "file", path });
           continue;
         }
-        // Outside the workspace a file card could not find it again: bring a note's text instead.
+        // Outside the workspace a file card could not find it again: copy an image in, bring a note's text.
         const size = file === uri ? stat.size : (await vscode.workspace.fs.stat(file)).size;
-        if (isTextPath(file.path) && size <= MAX_PREVIEW_BYTES) {
+        const copied = isImagePath(file.path) ? await this.copyImage(root, folder, file) : undefined;
+        if (copied) {
+          items.push({ kind: "file", path: copied });
+        } else if (isTextPath(file.path) && size <= MAX_PREVIEW_BYTES) {
           items.push({ kind: "text", text: new TextDecoder().decode(await vscode.workspace.fs.readFile(file)) });
         } else {
           skipped++;
@@ -163,10 +179,59 @@ export class CanvasEditorProvider implements vscode.CustomTextEditorProvider {
     }
     if (skipped) {
       void vscode.window.showInformationMessage(
-        `${skipped} dropped ${skipped === 1 ? "file" : "files"} could not be added. From outside the workspace only text notes come in, as text cards.`,
+        `${skipped} dropped ${skipped === 1 ? "file" : "files"} could not be added. From outside the workspace only images and text notes come in.`,
       );
     }
     return items;
+  }
+
+  /** Lets the user choose images anywhere. Ones outside the workspace are copied next to the canvas. */
+  private async pickImages(root: vscode.Uri, folder: vscode.Uri): Promise<string[]> {
+    const uris = await vscode.window.showOpenDialog({
+      canSelectMany: true,
+      defaultUri: folder,
+      filters: { Images: IMAGE_EXTENSIONS },
+      openLabel: "Add to canvas",
+    });
+    const paths: string[] = [];
+    for (const uri of uris ?? []) {
+      const path = relativeTo(root, uri) ?? (await this.copyImage(root, folder, uri));
+      if (path) paths.push(path);
+    }
+    return paths;
+  }
+
+  /** Saves pasted or dropped image data next to the canvas, as file cards. */
+  private async saveImages(root: vscode.Uri, folder: vscode.Uri, images: ImageData[]): Promise<DroppedItem[]> {
+    const items: DroppedItem[] = [];
+    for (const image of images) {
+      const bytes = Buffer.from(image.base64, "base64");
+      const path = await this.writeImage(root, folder, imageFileName(image.mime, image.name, new Date()), bytes);
+      if (path) items.push({ kind: "file", path });
+    }
+    return items;
+  }
+
+  private async copyImage(root: vscode.Uri, folder: vscode.Uri, uri: vscode.Uri): Promise<string | undefined> {
+    try {
+      const bytes = await vscode.workspace.fs.readFile(uri);
+      return await this.writeImage(root, folder, imageFileName("", uri.path, new Date()), bytes);
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** Writes an image into the canvas folder under a free name. Returns its path for a file card. */
+  private async writeImage(root: vscode.Uri, folder: vscode.Uri, name: string, bytes: Uint8Array): Promise<string | undefined> {
+    const existing = new Set((await vscode.workspace.fs.readDirectory(folder)).map(([n]) => n.toLowerCase()));
+    const target = vscode.Uri.joinPath(folder, uniqueFileName(name, (n) => existing.has(n.toLowerCase())));
+    try {
+      await vscode.workspace.fs.writeFile(target, bytes);
+    } catch (err) {
+      void vscode.window.showErrorMessage(`Could not save ${name}: ${(err as Error).message}`);
+      return undefined;
+    }
+    return relativeTo(root, target);
   }
 
   private async openLink(root: vscode.Uri, href: string): Promise<void> {

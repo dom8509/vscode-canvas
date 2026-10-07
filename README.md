@@ -21,6 +21,11 @@ open format Obsidian uses, so the files work in both.
   needs it). Several files land in a grid; a folder brings the files in it.
   Notes from outside the workspace come in as text cards. Double-click a file
   card to open the file beside the canvas.
+- **Images:** the image button in the bottom toolbar picks images from
+  anywhere on your computer. You can also paste an image (Ctrl/Cmd+V, e.g. a
+  screenshot) or drop image files from your file manager. Images from outside
+  the workspace are copied into the folder of the canvas first (a pasted one
+  is named like `Pasted image 20240131154500.png`, as in Obsidian).
 - **Web links:** the link button adds a card for a URL; *Open* opens it in
   the browser. Pasting a URL also makes a link card.
 - **Groups:** the group button puts a group around the selected cards (or

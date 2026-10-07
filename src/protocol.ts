@@ -9,11 +9,18 @@ export type FileInfo =
 export type HostMessage =
   | { type: "load"; text: string }
   | { type: "files"; files: Record<string, FileInfo> }
-  | { type: "picked"; path: string }
+  | { type: "picked"; paths: string[] }
   | { type: "dropped"; items: DroppedItem[]; x: number; y: number };
 
 /** A dropped file becomes a file card when it lies in the workspace, otherwise a text card with its contents. */
 export type DroppedItem = { kind: "file"; path: string } | { kind: "text"; text: string };
+
+/** An image pasted or dropped from outside VS Code, as base64. The host saves it next to the canvas. */
+export interface ImageData {
+  name: string;
+  mime: string;
+  base64: string;
+}
 
 export type WebviewMessage =
   | { type: "ready" }
@@ -22,6 +29,8 @@ export type WebviewMessage =
   | { type: "openFile"; path: string }
   | { type: "openLink"; href: string }
   | { type: "pickFile" }
+  | { type: "pickImages" }
+  | { type: "saveImages"; images: ImageData[]; x: number; y: number }
   | { type: "dropUris"; uris: string[]; x: number; y: number }
   | { type: "notify"; text: string }
   | { type: "showSource" }

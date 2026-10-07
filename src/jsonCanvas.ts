@@ -161,3 +161,44 @@ export function isTextPath(path: string): boolean {
   const ext = path.split(".").pop()?.toLowerCase() ?? "";
   return TEXT_EXTENSIONS.has(ext);
 }
+
+const IMAGE_MIME_EXTENSIONS: Record<string, string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/gif": "gif",
+  "image/bmp": "bmp",
+  "image/svg+xml": "svg",
+  "image/webp": "webp",
+  "image/avif": "avif",
+};
+
+/** True for an image the canvas can show, by MIME type or file name. */
+export function isImageFile(mime: string, name = ""): boolean {
+  return mime in IMAGE_MIME_EXTENSIONS || isImagePath(name);
+}
+
+/**
+ * The file name for an image saved into the workspace. A named file keeps its
+ * name; a pasted one is called "Pasted image 20240131154500.png", as in Obsidian.
+ */
+export function imageFileName(mime: string, name: string, date: Date): string {
+  const clean = name.split(/[\\/]/).pop()!.replace(/[:*?"<>|]/g, "-").trim();
+  if (clean && isImagePath(clean)) return clean;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const stamp =
+    `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}` +
+    `${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
+  return `Pasted image ${stamp}.${IMAGE_MIME_EXTENSIONS[mime] ?? "png"}`;
+}
+
+/** "name.png", or "name 1.png", "name 2.png", … when that is taken. */
+export function uniqueFileName(name: string, taken: (name: string) => boolean): string {
+  if (!taken(name)) return name;
+  const dot = name.lastIndexOf(".");
+  const stem = dot > 0 ? name.slice(0, dot) : name;
+  const ext = dot > 0 ? name.slice(dot) : "";
+  for (let i = 1; ; i++) {
+    const candidate = `${stem} ${i}${ext}`;
+    if (!taken(candidate)) return candidate;
+  }
+}
