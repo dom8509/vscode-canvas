@@ -456,7 +456,7 @@ button {
 
 #toolbar,
 #zoombar,
-#colorbar {
+#props {
   position: absolute;
   display: flex;
   gap: 2px;
@@ -480,14 +480,40 @@ button {
   flex-direction: column;
 }
 
-#colorbar {
+#props {
   top: 12px;
-  left: 50%;
-  transform: translateX(-50%);
-  align-items: center;
+  left: 12px;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px 12px;
+  width: 244px;
+  max-height: calc(100% - 100px);
+  overflow-y: auto;
+  box-sizing: border-box;
 }
 
-#colorbar[hidden],
+#props section,
+#props .edge-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+#props h3 {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: normal;
+  opacity: 0.75;
+}
+
+#props .row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+#props[hidden],
 #error[hidden],
 #marquee[hidden] {
   display: none;
@@ -495,7 +521,7 @@ button {
 
 #toolbar button,
 #zoombar button,
-#colorbar button:not(.swatch) {
+#props button:not(.swatch) {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -510,7 +536,7 @@ button {
 
 #toolbar button:hover,
 #zoombar button:hover,
-#colorbar button:not(.swatch):hover {
+#props button:not(.swatch):hover {
   background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
 }
 
@@ -593,18 +619,28 @@ button {
 
 /* ------------------------------------------------------------ edge styles */
 
-#colorbar .edge-tools {
+#props .edge-tools {
   display: none;
-  align-items: center;
-  gap: 2px;
 }
 
-#colorbar.has-edges .edge-tools {
+#props.has-edges .edge-tools {
   display: flex;
 }
 
-#colorbar button.active {
+#props .row button:not(.swatch) {
+  width: 32px;
+  height: 28px;
+  padding: 0;
+  background: var(--vscode-input-background, rgba(128, 128, 128, 0.1));
+}
+
+#props .row button:not(.swatch):hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.25));
+}
+
+#props .row button:not(.swatch).active {
   background: var(--vscode-toolbar-activeBackground, rgba(128, 128, 128, 0.35));
+  outline: 1px solid var(--accent);
 }
 
 .style-icon .stroke {
@@ -620,27 +656,6 @@ button {
   stroke: none;
 }
 
-#head-menu {
-  position: absolute;
-  top: calc(100% + 6px);
-  display: flex;
-  gap: 2px;
-  padding: 4px;
-  border-radius: 8px;
-  background: var(--bar-bg);
-  border: 1px solid var(--card-border);
-  box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.25));
-}
-
-#colorbar [data-menu]::after {
-  content: "";
-  margin-left: 2px;
-  border: 4px solid transparent;
-  border-top-color: currentColor;
-  transform: translateY(2px);
-  opacity: 0.6;
-}
-
-#head-menu[hidden] {
-  display: none;
+#props .row .swatch {
+  margin: 0;
 }

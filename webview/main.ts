@@ -97,25 +97,28 @@ app.innerHTML = `
     <button data-action="link" title="Add web page">${icon("link")}</button>
     <button data-action="group" title="Add group (around the selection, if any)">${icon("group")}</button>
   </div>
-  <div id="colorbar" hidden>
-    <button data-color="" title="No color" class="swatch none"></button>
-    ${["1", "2", "3", "4", "5", "6"].map((c) => `<button data-color="${c}" class="swatch" style="--swatch: ${cssColor(c)}"></button>`).join("")}
-    <label class="swatch custom" title="Custom color"><input type="color"></label>
-    <span class="sep"></span>
-    <span class="edge-tools">
-      <span class="sep"></span>
-      ${LINE_STYLES.map((v) => `<button data-style="lineStyle" data-value="${v}" title="${v[0]!.toUpperCase() + v.slice(1)} line">${styleIcon({ lineStyle: v })}</button>`).join("")}
-      <span class="sep"></span>
-      ${LINE_WIDTHS.map((v) => `<button data-style="lineWidth" data-value="${v}" title="${v[0]!.toUpperCase() + v.slice(1)}">${styleIcon({ lineWidth: v })}</button>`).join("")}
-      <span class="sep"></span>
-      ${PATH_STYLES.map((v) => `<button data-style="pathStyle" data-value="${v}" title="${v[0]!.toUpperCase() + v.slice(1)}">${styleIcon({ pathStyle: v })}</button>`).join("")}
-      <span class="sep"></span>
-      <button data-menu="fromHead" title="Start of the line"></button>
-      <button data-menu="toHead" title="End of the line"></button>
-    </span>
-    <span class="sep"></span>
-    <button data-action="delete" title="Delete (Del)">${icon("trash")}</button>
-    <div id="head-menu" hidden></div>
+  <div id="props" hidden>
+    <section>
+      <h3>Color</h3>
+      <div class="row">
+        <button data-color="" title="No color" class="swatch none"></button>
+        ${["1", "2", "3", "4", "5", "6"].map((c) => `<button data-color="${c}" class="swatch" style="--swatch: ${cssColor(c)}"></button>`).join("")}
+        <label class="swatch custom" title="Custom color"><input type="color"></label>
+      </div>
+    </section>
+    <div class="edge-tools">
+      ${propRow("Line style", "lineStyle", LINE_STYLES)}
+      ${propRow("Line width", "lineWidth", LINE_WIDTHS)}
+      ${propRow("Arrow type", "pathStyle", PATH_STYLES)}
+      ${propRow("Start", "fromHead", HEAD_SHAPES)}
+      ${propRow("End", "toHead", HEAD_SHAPES)}
+    </div>
+    <section>
+      <h3>Actions</h3>
+      <div class="row">
+        <button data-action="delete" title="Delete (Del)">${icon("trash")}</button>
+      </div>
+    </section>
   </div>
   <div id="zoombar">
     <button data-action="zoom-in" title="Zoom in">${icon("plus")}</button>
@@ -135,9 +138,8 @@ const edgesLayer = document.getElementById("edges") as unknown as SVGSVGElement;
 const labelsLayer = document.getElementById("labels")!;
 const marquee = document.getElementById("marquee")!;
 const errorBox = document.getElementById("error")!;
-const colorbar = document.getElementById("colorbar")!;
+const props = document.getElementById("props")!;
 const zoomLevel = document.getElementById("zoom-level")!;
-const headMenu = document.getElementById("head-menu")!;
 
 
 /** The SVG stroke settings of an edge's line. */
@@ -159,6 +161,17 @@ function styleIcon(part: Partial<EdgeStyle>): string {
     headSvg(style.fromHead, { x: 4, y: 11 }, { x: -1, y: 0 }, 9) + headSvg(style.toHead, { x: 28, y: 11 }, { x: 1, y: 0 }, 9);
   return `<svg class="style-icon" viewBox="0 0 32 22" width="32" height="22" style="--edge-width: ${Math.min(width, 3.5)}px">
     <path class="stroke" d="${d}" stroke-dasharray="${dash}"/>${heads}</svg>`;
+}
+
+/** A titled row of buttons in the properties panel, one per value of an edge style. */
+function propRow(title: string, key: keyof EdgeStyle, values: readonly string[]): string {
+  const buttons = values
+    .map((v) => {
+      const name = v[0]!.toUpperCase() + v.slice(1);
+      return `<button data-style="${key}" data-value="${v}" title="${name}">${styleIcon({ [key]: v })}</button>`;
+    })
+    .join("");
+  return `<section><h3>${title}</h3><div class="row">${buttons}</div></section>`;
 }
 
 function icon(name: string): string {
@@ -438,27 +451,22 @@ function showSelection(): void {
 }
 
 function updateColorbar(): void {
-  colorbar.hidden = selection.size === 0 || editing !== null;
+  props.hidden = selection.size === 0 || editing !== null;
   const items = [...selection].map((id) => nodeById(id) ?? edgeById(id)).filter(Boolean);
   const colors = new Set(items.map((i) => i!.color ?? ""));
   const current = colors.size === 1 ? [...colors][0]! : null;
-  colorbar.querySelectorAll<HTMLElement>("[data-color]").forEach((b) => {
+  props.querySelectorAll<HTMLElement>("[data-color]").forEach((b) => {
     b.classList.toggle("active", b.dataset.color === current);
   });
 
-  // The edge tools show when edges are selected. A value all of them share is marked.
+  // The edge properties show when edges are selected. A value all of them share is marked.
   const styles = [...selection].map(edgeById).filter((e): e is CanvasEdge => !!e).map(edgeStyle);
-  colorbar.classList.toggle("has-edges", styles.length > 0);
-  if (!styles.length) headMenu.hidden = true;
+  props.classList.toggle("has-edges", styles.length > 0);
   const shared = <K extends keyof EdgeStyle>(key: K): EdgeStyle[K] | undefined =>
     styles.every((s) => s[key] === styles[0]?.[key]) ? styles[0]?.[key] : undefined;
-  colorbar.querySelectorAll<HTMLElement>("[data-style]").forEach((b) => {
+  props.querySelectorAll<HTMLElement>("[data-style]").forEach((b) => {
     b.classList.toggle("active", shared(b.dataset.style as keyof EdgeStyle) === b.dataset.value);
   });
-  for (const key of ["fromHead", "toHead"] as const) {
-    const button = colorbar.querySelector<HTMLElement>(`[data-menu="${key}"]`)!;
-    button.innerHTML = styleIcon({ [key]: shared(key) ?? "arrow" });
-  }
 }
 
 /** Sets part of the look of the selected edges, and of new ones. */
@@ -469,22 +477,6 @@ function setSelectedEdgeStyle(style: Partial<EdgeStyle>): void {
     if (edge) setEdgeStyle(edge, style);
   }
   commit();
-}
-
-function toggleHeadMenu(button: HTMLElement): void {
-  const key = button.dataset.menu as "fromHead" | "toHead";
-  if (!headMenu.hidden && headMenu.dataset.for === key) {
-    headMenu.hidden = true;
-    return;
-  }
-  headMenu.dataset.for = key;
-  headMenu.innerHTML = HEAD_SHAPES.map(
-    (v) => `<button data-style="${key}" data-value="${v}" title="${v[0]!.toUpperCase() + v.slice(1)}">${styleIcon({ [key]: v })}</button>`,
-  ).join("");
-  // Under the button, kept inside the bar so it does not run off the edge.
-  headMenu.style.right = `${Math.max(0, colorbar.clientWidth - button.offsetLeft - button.offsetWidth - 40)}px`;
-  headMenu.hidden = false;
-  updateColorbar();
 }
 
 // ---------------------------------------------------------------- creating
@@ -1202,11 +1194,7 @@ app.addEventListener("click", (e) => {
   const button = (e.target as HTMLElement).closest<HTMLElement>("button");
   if (!button || viewport.contains(button)) return;
   if (button.dataset.color !== undefined) return setColor(button.dataset.color);
-  if (button.dataset.menu) return toggleHeadMenu(button);
-  if (button.dataset.style) {
-    if (button.parentElement === headMenu) headMenu.hidden = true;
-    return setSelectedEdgeStyle({ [button.dataset.style]: button.dataset.value });
-  }
+  if (button.dataset.style) return setSelectedEdgeStyle({ [button.dataset.style]: button.dataset.value });
   switch (button.dataset.action) {
     case "text":
       return addNode(textNodeAt(viewportCenter()), true);
@@ -1237,7 +1225,7 @@ app.addEventListener("click", (e) => {
   }
 });
 
-colorbar.querySelector<HTMLInputElement>("input[type=color]")!.addEventListener("change", (e) => {
+props.querySelector<HTMLInputElement>("input[type=color]")!.addEventListener("change", (e) => {
   setColor((e.target as HTMLInputElement).value);
 });
 
