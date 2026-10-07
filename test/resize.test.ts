@@ -27,3 +27,17 @@ describe("resizing from any side", () => {
     expect(kept.y).toBeCloseTo(a.y);
   });
 });
+
+describe("scaling free text", () => {
+  it("stores the scale, leaves 1 out of the file and keeps it in bounds", async () => {
+    const { MAX_TEXT_SCALE, setTextScale, textScaleOf } = await import("../src/jsonCanvas");
+    const node = { id: "a", type: "text" as const, text: "hi", x: 0, y: 0, width: 50, height: 20 };
+    expect(textScaleOf(node)).toBe(1);
+    setTextScale(node, 2.5);
+    expect(textScaleOf(node)).toBe(2.5);
+    setTextScale(node, 1);
+    expect(node).not.toHaveProperty("textScale");
+    setTextScale(node, 1000);
+    expect(textScaleOf(node)).toBe(MAX_TEXT_SCALE);
+  });
+});

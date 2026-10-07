@@ -960,7 +960,7 @@ button {
 .node.measure .content {
   position: static;
   width: max-content;
-  max-width: 640px;
+  max-width: calc(640px * var(--text-scale, 1));
 }
 
 .node.measure .raw {
@@ -969,22 +969,22 @@ button {
 
 .font-s .content,
 .font-s .editor {
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale, 1));
 }
 
 .font-m .content,
 .font-m .editor {
-  font-size: 16px;
+  font-size: calc(16px * var(--text-scale, 1));
 }
 
 .font-l .content,
 .font-l .editor {
-  font-size: 22px;
+  font-size: calc(22px * var(--text-scale, 1));
 }
 
 .font-xl .content,
 .font-xl .editor {
-  font-size: 32px;
+  font-size: calc(32px * var(--text-scale, 1));
 }
 
 /* Placing a tool's shape or text. */
