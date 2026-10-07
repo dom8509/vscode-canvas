@@ -571,6 +571,9 @@ button {
 
 #props[hidden],
 #props:not(.has-edges) .edge-tools,
+#props:not(.has-shapes) .shape-tools,
+#props:not(.has-text) .text-tools,
+#shape-menu[hidden],
 #head-menu[hidden] {
   display: none;
 }
@@ -729,6 +732,7 @@ button {
   left: calc(100% + 8px);
   display: grid;
   grid-template-columns: repeat(3, 40px);
+
   gap: 2px;
   padding: 4px;
   border-radius: 10px;
@@ -781,4 +785,214 @@ button {
 .style-icon .fill {
   fill: currentColor;
   stroke: none;
+}
+
+#head-menu.wide {
+  grid-template-columns: repeat(6, 36px);
+}
+
+.size-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* ------------------------------------------------------------ shapes and free text */
+
+.node.shape,
+.node.free-text,
+.node.shape.colored,
+.node.free-text.colored {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  --shape-stroke: color-mix(in srgb, var(--vscode-editor-foreground, #ccc) 75%, transparent);
+}
+
+.node.shape.colored,
+.node.free-text.colored {
+  --shape-stroke: var(--node-color);
+}
+
+.shape-outline {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.shape-outline path {
+  stroke: var(--shape-stroke);
+  stroke-width: 2.5px;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.shape-outline .marks {
+  fill: none;
+}
+
+.node.fill-none .outline {
+  fill: transparent;
+}
+
+.node.fill-semi .outline {
+  fill: color-mix(in srgb, var(--shape-stroke) 16%, var(--vscode-editor-background, transparent));
+}
+
+.node.fill-solid .outline {
+  fill: var(--shape-stroke);
+}
+
+.node.fill-solid .content,
+.node.fill-solid .editor {
+  color: var(--vscode-editor-background, #fff);
+}
+
+.node.fill-solid .shape-outline .marks {
+  stroke: var(--vscode-editor-background, #fff);
+}
+
+/* Text sits in the middle of a shape, as in tldraw. */
+.node.shape .content {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  padding: 12px 14%;
+}
+
+.node.shape .editor {
+  text-align: center;
+  padding: 0;
+  height: auto;
+  max-height: 100%;
+  field-sizing: content;
+}
+
+.node.shape .editor,
+.node.free-text .editor {
+  font-family: inherit;
+  line-height: 1.4;
+}
+
+/* Free text: no box, as big as its text. */
+.node.free-text .content,
+.node.free-text .editor {
+  padding: 2px 4px;
+  overflow: visible;
+  line-height: 1.4;
+}
+
+.node.free-text.colored .content,
+.node.free-text.colored .editor {
+  color: var(--node-color);
+}
+
+.node.free-text > .resize,
+.node.free-text.selected > .resize::after {
+  display: none;
+}
+
+.node.free-text .content > :first-child {
+  margin-top: 0;
+}
+
+.node.measure {
+  position: absolute;
+  left: -100000px;
+  top: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.node.measure .content {
+  position: static;
+  width: max-content;
+  max-width: 640px;
+}
+
+.node.measure .raw {
+  white-space: pre-wrap;
+}
+
+.font-s .content,
+.font-s .editor {
+  font-size: 13px;
+}
+
+.font-m .content,
+.font-m .editor {
+  font-size: 16px;
+}
+
+.font-l .content,
+.font-l .editor {
+  font-size: 22px;
+}
+
+.font-xl .content,
+.font-xl .editor {
+  font-size: 32px;
+}
+
+/* Placing a tool's shape or text. */
+
+#viewport.placing,
+#viewport.placing * {
+  cursor: crosshair !important;
+}
+
+.draw-preview {
+  position: absolute;
+  pointer-events: none;
+}
+
+.draw-preview svg {
+  overflow: visible;
+}
+
+.draw-preview path {
+  fill: color-mix(in srgb, var(--accent) 12%, transparent);
+  stroke: var(--accent);
+  stroke-width: 2px;
+  stroke-dasharray: 6 4;
+}
+
+#toolbar button.active {
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
+  color: var(--vscode-textLink-foreground, var(--accent));
+}
+
+#shape-menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: grid;
+  grid-template-columns: repeat(6, 36px);
+  gap: 2px;
+  padding: 4px;
+  border-radius: 10px;
+  background: var(--bar-bg);
+  border: 1px solid color-mix(in srgb, var(--card-border) 60%, transparent);
+  box-shadow: 0 6px 20px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.22));
+}
+
+#toolbar #shape-menu button {
+  min-width: 0;
+  height: 32px;
+  padding: 0;
+}
+
+.shape-icon path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6px;
+  stroke-linejoin: round;
+}
+
+.node.free-text.editing .content {
+  padding: 0;
 }

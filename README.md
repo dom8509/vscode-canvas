@@ -14,6 +14,18 @@ open format Obsidian uses, so the files work in both.
   (Markdown: headings, lists, tasks, **bold**, *italic*, `code`, links,
   `[[wikilinks]]`). Double-click a card to edit it; Escape or a click outside
   ends editing.
+- **Text:** the *T* button (or the **T** key) picks the text tool; click on
+  the canvas and type, as in Excalidraw. Free text has no box and grows with
+  what you write; the properties panel sets its size (S, M, L, XL) and color.
+  Text left empty disappears.
+- **Shapes:** the shapes button opens 18 shapes, as in tldraw: rectangle,
+  ellipse, triangle, diamond, pentagon, hexagon, octagon, star, rhombus,
+  trapezoid, cloud, heart, four arrows, x-box and check-box (**R** picks the
+  rectangle, **O** the ellipse). Click on the canvas for a shape of the usual
+  size, or drag to draw it. Double-click a shape to write in it. The
+  properties panel changes the shape, its fill (none, light, solid), color and
+  text size. Shapes and free text are text cards in the file, so Obsidian
+  shows them as ordinary cards.
 - **Notes and media:** the file button in the bottom toolbar adds a file from
   the workspace. Markdown notes show their text, images show the picture.
   You can also drag notes and files onto the canvas — from the Explorer, an

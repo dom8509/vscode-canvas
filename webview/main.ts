@@ -3,15 +3,21 @@ import {
   type CanvasEdge,
   type CanvasNode,
   type EdgeStyle,
+  type NodeLook,
+  type ShapeKind,
   type FileNode,
   type GroupNode,
   type Side,
+  FILLS,
+  FONT_SIZES,
   HEAD_SHAPES,
   LINE_STYLES,
   LINE_WIDTHS,
   PATH_STYLES,
+  SHAPES,
   cssColor,
   edgeStyle,
+  nodeLook,
   isImageFile,
   isImagePath,
   isTextPath,
@@ -19,6 +25,7 @@ import {
   parseCanvas,
   serializeCanvas,
   setEdgeStyle,
+  setNodeLook,
 } from "../src/jsonCanvas";
 import type { DroppedItem, FileInfo, HostMessage, ImageData, WebviewMessage } from "../src/protocol";
 import {
@@ -41,6 +48,7 @@ import {
 } from "./geometry";
 import { sectionText } from "../src/subpath";
 import { escapeHtml, renderMarkdown, stripFrontMatter } from "./markdown";
+import { defaultShapeSize, shapeMarks, shapePath } from "./shapes";
 
 declare function acquireVsCodeApi(): {
   postMessage(msg: WebviewMessage): void;
@@ -57,6 +65,11 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 /** How much of a note a card shows. */
 const PREVIEW_CHARS = 4000;
 const WIDTHS: Record<EdgeStyle["lineWidth"], number> = { thin: 1.5, normal: 2.5, bold: 4.5 };
+const FILL_ICONS: Record<string, string> = {
+  none: '<rect x="5" y="3" width="18" height="16" rx="3" fill="none"/>',
+  semi: '<rect x="5" y="3" width="18" height="16" rx="3" fill="currentColor" fill-opacity="0.3"/>',
+  solid: '<rect x="5" y="3" width="18" height="16" rx="3" fill="currentColor"/>',
+};
 
 // ---------------------------------------------------------------- state
 
@@ -95,10 +108,15 @@ app.innerHTML = `
   </div>
   <div id="toolbar">
     <button data-action="text" title="Add card (or double-click the canvas)">${icon("card")}</button>
+    <button data-action="text-tool" title="Text (T): click on the canvas to write">${icon("type")}</button>
+    <button data-action="shapes" title="Shapes (R, O): pick one, then click or drag on the canvas">${icon("shapes")}</button>
     <button data-action="file" title="Add note or media from the workspace">${icon("file")}</button>
     <button data-action="image" title="Add image (or paste one with Ctrl+V)">${icon("image")}</button>
     <button data-action="link" title="Add web page">${icon("link")}</button>
     <button data-action="group" title="Add group (around the selection, if any)">${icon("group")}</button>
+    <div id="shape-menu" hidden>
+      ${SHAPES.map((k) => `<button data-shape="${k}" title="${title(k.replace("-", " "))}">${shapeIcon(k)}</button>`).join("")}
+    </div>
   </div>
   <div id="props" hidden>
     <section>
@@ -108,6 +126,15 @@ app.innerHTML = `
         ${["1", "2", "3", "4", "5", "6"].map((c) => `<button data-color="${c}" class="swatch" style="--swatch: ${cssColor(c)}"></button>`).join("")}
         <label class="swatch custom" title="Custom color"><input type="color"></label>
       </div>
+    </section>
+    <section class="shape-tools">
+      <h3>Shape</h3>
+      <div class="pickers"><button class="picker" data-menu="shape" title="Shape"></button></div>
+      ${segmentedLook("fill", FILLS)}
+    </section>
+    <section class="text-tools">
+      <h3>Text size</h3>
+      ${segmentedLook("fontSize", FONT_SIZES)}
     </section>
     <section class="edge-tools">
       <h3>Line</h3>
@@ -147,6 +174,8 @@ const marquee = document.getElementById("marquee")!;
 const errorBox = document.getElementById("error")!;
 const props = document.getElementById("props")!;
 const headMenu = document.getElementById("head-menu")!;
+const shapeMenu = document.getElementById("shape-menu")!;
+const toolbar = document.getElementById("toolbar")!;
 const zoomLevel = document.getElementById("zoom-level")!;
 
 
@@ -183,12 +212,36 @@ function title(value: string): string {
   return value[0]!.toUpperCase() + value.slice(1);
 }
 
+/** A small picture of a shape for menus. */
+function shapeIcon(shape: ShapeKind): string {
+  const marks = shapeMarks(shape, 24, 20, 2);
+  return `<svg class="shape-icon" viewBox="0 0 24 20" width="24" height="20"><path d="${shapePath(shape, 24, 20, 2)}"/>${marks ? `<path d="${marks}"/>` : ""}</svg>`;
+}
+
+
+/** A row of joined buttons for the look of shapes and text. */
+function segmentedLook(key: keyof NodeLook, values: readonly string[]): string {
+  const buttons = values
+    .map((v) => {
+      const face =
+        key === "fill"
+          ? `<svg class="style-icon" viewBox="0 0 28 22"><g stroke="currentColor" stroke-width="1.8">${FILL_ICONS[v]}</g></svg>`
+          : `<span class="size-label">${v.toUpperCase()}</span>`;
+      const name = key === "fill" ? `${title(v)} fill` : { s: "Small", m: "Medium", l: "Large", xl: "Extra large" }[v];
+      return `<button data-look="${key}" data-value="${v}" title="${name}">${face}</button>`;
+    })
+    .join("");
+  return `<div class="segmented">${buttons}</div>`;
+}
+
 function icon(name: string): string {
   const paths: Record<string, string> = {
     card: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9h10M7 13h7"/>',
     file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
     image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/>',
     link: '<path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/>',
+    type: '<path d="M5 6V4h14v2M12 4v16M9 20h6"/>',
+    shapes: '<rect x="3" y="3" width="10" height="10" rx="2"/><circle cx="16.5" cy="16.5" r="4.5"/>',
     group: '<rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="3 3"/><rect x="7" y="8" width="6" height="5" rx="1"/>',
     trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
@@ -300,7 +353,13 @@ function renderNodes(): void {
       body.className = "content";
       el.append(body);
       if (node.type === "text") {
-        body.innerHTML = renderMarkdown(node.text) || '<p class="placeholder">Double-click to write</p>';
+        const look = nodeLook(node);
+        if (look.shape !== "card") el.classList.add(`font-${look.fontSize}`);
+        if (look.shape === "text") el.classList.add("free-text");
+        else if (look.shape !== "card") el.classList.add("shape", `fill-${look.fill}`);
+        const empty = look.shape === "card" ? '<p class="placeholder">Double-click to write</p>' : "";
+        body.innerHTML = renderMarkdown(node.text) || empty;
+        if (look.shape !== "card" && look.shape !== "text") drawShape(el, node);
       } else if (node.type === "file") {
         renderFile(el, body, node, missing);
       } else {
@@ -328,6 +387,39 @@ function placeNode(el: HTMLElement, node: CanvasNode): void {
   el.style.top = `${node.y}px`;
   el.style.width = `${node.width}px`;
   el.style.height = `${node.height}px`;
+  if (el.classList.contains("shape")) drawShape(el, node);
+}
+
+/** The outline of a shaped card, redrawn when its size changes. */
+function drawShape(el: HTMLElement, node: CanvasNode): void {
+  const shape = nodeLook(node).shape as ShapeKind;
+  const key = `${shape} ${node.width} ${node.height}`;
+  if (el.dataset.drawn === key) return;
+  el.dataset.drawn = key;
+  const marks = shapeMarks(shape, node.width, node.height, 2);
+  const svg = `<svg class="shape-outline" viewBox="0 0 ${node.width} ${node.height}" width="${node.width}" height="${node.height}">
+    <path class="outline" d="${shapePath(shape, node.width, node.height, 2)}"/>${marks ? `<path class="marks" d="${marks}"/>` : ""}</svg>`;
+  el.querySelector(".shape-outline")?.remove();
+  el.insertAdjacentHTML("afterbegin", svg);
+}
+
+/** Free text is as big as its text, as in Excalidraw. */
+const measurer = document.createElement("div");
+measurer.className = "node free-text measure";
+
+function measureText(node: CanvasNode, html: string): { width: number; height: number } {
+  measurer.className = `node free-text measure font-${nodeLook(node).fontSize}`;
+  measurer.innerHTML = `<div class="content">${html || "&#8203;"}</div>`;
+  if (!measurer.isConnected) nodesLayer.append(measurer);
+  const content = measurer.firstElementChild as HTMLElement;
+  return { width: Math.ceil(content.offsetWidth) + 2, height: Math.ceil(content.offsetHeight) + 2 };
+}
+
+function fitFreeText(node: CanvasNode): void {
+  if (node.type !== "text" || nodeLook(node).shape !== "text") return;
+  const size = measureText(node, renderMarkdown(node.text));
+  node.width = Math.max(30, size.width);
+  node.height = Math.max(20, size.height);
 }
 
 function renderGroup(el: HTMLElement, node: GroupNode): void {
@@ -484,23 +576,46 @@ function updateColorbar(): void {
   props.querySelectorAll<HTMLElement>("[data-style]").forEach((b) => {
     b.classList.toggle("active", shared(b.dataset.style as keyof EdgeStyle) === b.dataset.value);
   });
+  // Shape and text properties, for shaped cards and free text.
+  const looks = [...selection]
+    .map(nodeById)
+    .filter((n): n is CanvasNode => n?.type === "text")
+    .map(nodeLook)
+    .filter((l) => l.shape !== "card");
+  const shapes = looks.filter((l) => l.shape !== "text");
+  props.classList.toggle("has-shapes", shapes.length > 0);
+  props.classList.toggle("has-text", looks.length > 0);
+  const sharedLook = <K extends keyof NodeLook>(list: NodeLook[], key: K): NodeLook[K] | undefined =>
+    list.every((l) => l[key] === list[0]?.[key]) ? list[0]?.[key] : undefined;
+  props.querySelectorAll<HTMLElement>("[data-look]").forEach((b) => {
+    const key = b.dataset.look as keyof NodeLook;
+    b.classList.toggle("active", sharedLook(key === "fontSize" ? looks : shapes, key) === b.dataset.value);
+  });
+  const shapePicker = props.querySelector<HTMLElement>('[data-menu="shape"]')!;
+  const sharedShape = sharedLook(shapes, "shape");
+  shapePicker.innerHTML = `${sharedShape ? shapeIcon(sharedShape as ShapeKind) : "<span>Mixed</span>"}<span class="caret"></span>`;
+
   for (const key of ["fromHead", "toHead"] as const) {
     const value = shared(key);
     const picker = props.querySelector<HTMLElement>(`[data-menu="${key}"]`)!;
     picker.innerHTML = `${styleIcon({ [key]: value ?? "arrow" })}<span class="caret"></span>`;
     picker.title = `${key === "fromHead" ? "Start" : "End"}: ${value ? title(value) : "mixed"}`;
   }
-  if (!styles.length || props.hidden) closeHeadMenu();
+  if ((!styles.length && !shapes.length) || props.hidden) closeHeadMenu();
 }
 
 /** The small menu of arrowheads beside the panel, as tldraw's dropdown pickers. */
 function toggleHeadMenu(picker: HTMLElement): void {
-  const key = picker.dataset.menu as "fromHead" | "toHead";
+  const key = picker.dataset.menu as "fromHead" | "toHead" | "shape";
   if (!headMenu.hidden && headMenu.dataset.for === key) return closeHeadMenu();
   headMenu.dataset.for = key;
-  headMenu.innerHTML = HEAD_SHAPES.map(
-    (v) => `<button data-style="${key}" data-value="${v}" title="${title(v)}">${styleIcon({ [key]: v })}</button>`,
-  ).join("");
+  headMenu.classList.toggle("wide", key === "shape");
+  headMenu.innerHTML =
+    key === "shape"
+      ? SHAPES.map((v) => `<button data-look="shape" data-value="${v}" title="${title(v.replace("-", " "))}">${shapeIcon(v)}</button>`).join("")
+      : HEAD_SHAPES.map(
+          (v) => `<button data-style="${key}" data-value="${v}" title="${title(v)}">${styleIcon({ [key]: v })}</button>`,
+        ).join("");
   headMenu.style.top = `${picker.offsetTop}px`;
   headMenu.hidden = false;
   props.querySelectorAll(".picker").forEach((p) => p.classList.toggle("open", p === picker));
@@ -510,6 +625,24 @@ function toggleHeadMenu(picker: HTMLElement): void {
 function closeHeadMenu(): void {
   headMenu.hidden = true;
   props.querySelectorAll(".picker.open").forEach((p) => p.classList.remove("open"));
+}
+
+/** The fill picked last. New shapes get it, as edges get their last style. */
+let shapeDefaults: Partial<NodeLook> = {};
+
+/** Sets part of the look of the selected shapes and free text. */
+function setSelectedNodeLook(look: Partial<NodeLook>): void {
+  if (look.fill) shapeDefaults = { ...shapeDefaults, fill: look.fill };
+  for (const id of selection) {
+    const node = nodeById(id);
+    const current = node && nodeLook(node);
+    if (!node || !current || current.shape === "card") continue;
+    // A shape stays a shape and free text stays text; fill only applies to shapes.
+    if (current.shape === "text" && (look.shape || look.fill)) continue;
+    setNodeLook(node, look);
+    fitFreeText(node);
+  }
+  commit();
 }
 
 /** Sets part of the look of the selected edges, and of new ones. */
@@ -659,6 +792,18 @@ function startEditing(id: string): void {
   field.focus();
   field.setSelectionRange(field.value.length, field.value.length);
 
+  const freeText = node.type === "text" && nodeLook(node).shape === "text";
+  if (freeText) {
+    // Grow with the text while typing.
+    const grow = () => {
+      const size = measureText(node, `<div class="raw">${escapeHtml(field.value)}&#8203;</div>`);
+      el.style.width = `${Math.max(30, size.width + 8)}px`;
+      el.style.height = `${Math.max(20, size.height)}px`;
+    };
+    field.addEventListener("input", grow);
+    grow();
+  }
+
   let done = false;
   const finish = () => {
     if (done) return;
@@ -666,9 +811,16 @@ function startEditing(id: string): void {
     editing = null;
     const value = node.type === "text" ? field.value : field.value.trim();
     const old = node.type === "text" ? node.text : node.url;
-    if (value !== old) {
+    if (freeText && value.trim() === "") {
+      // Empty text is dropped, as in Excalidraw.
+      data.nodes = data.nodes.filter((n) => n.id !== node.id);
+      data.edges = data.edges.filter((e) => e.fromNode !== node.id && e.toNode !== node.id);
+      selection.delete(node.id);
+      commit();
+    } else if (value !== old) {
       if (node.type === "text") node.text = value;
       else node.url = value;
+      fitFreeText(node);
       commit();
     } else {
       render();
@@ -742,7 +894,9 @@ type Drag =
   | { kind: "marquee"; start: Point; additive: Set<string> }
   | { kind: "move"; start: Point; nodes: { node: CanvasNode; x: number; y: number }[]; moved: boolean; clickedId: string }
   | { kind: "resize"; start: Point; node: CanvasNode; width: number; height: number }
-  | { kind: "connect"; from: CanvasNode; side: Side; preview: SVGPathElement };
+  | { kind: "connect"; from: CanvasNode; side: Side; preview: SVGPathElement }
+  | { kind: "draw"; start: Point; shape: ShapeKind; preview: HTMLElement }
+  | { kind: "text"; start: Point };
 
 let drag: Drag | null = null;
 
@@ -762,6 +916,11 @@ viewport.addEventListener("pointerdown", (e) => {
     return;
   }
   if (e.button !== 0) return;
+
+  if (tool) {
+    startPlacing(e, p);
+    return;
+  }
 
   const linkButton = target.closest<HTMLElement>(".link-open");
   if (linkButton) {
@@ -835,6 +994,40 @@ viewport.addEventListener("pointerdown", (e) => {
   startMarquee(e, p);
 });
 
+// ---------------------------------------------------------------- tools: text and shapes
+
+type Tool = { kind: "text" } | { kind: "shape"; shape: ShapeKind };
+let tool: Tool | null = null;
+
+function setTool(next: Tool | null): void {
+  tool = next;
+  viewport.classList.toggle("placing", !!tool);
+  toolbar.querySelector('[data-action="text-tool"]')!.classList.toggle("active", tool?.kind === "text");
+  toolbar.querySelector('[data-action="shapes"]')!.classList.toggle("active", tool?.kind === "shape");
+  shapeMenu.hidden = true;
+}
+
+/** With a tool picked, a click places text; a click or a drag places a shape. */
+function startPlacing(e: PointerEvent, p: Point): void {
+  if (!tool) return;
+  if (tool.kind === "text") {
+    // The text box opens on release: opening it now would lose the focus the press gives the canvas.
+    drag = { kind: "text", start: p };
+    viewport.setPointerCapture(e.pointerId);
+    return;
+  }
+  const preview = document.createElement("div");
+  preview.className = "draw-preview";
+  nodesLayer.append(preview);
+  drag = { kind: "draw", start: p, shape: tool.shape, preview };
+  viewport.setPointerCapture(e.pointerId);
+}
+
+function drawRect(start: Point, p: Point, free: boolean): Rect {
+  if (free) return rectFromPoints(start, p);
+  return rectFromPoints({ x: snap(start.x, GRID), y: snap(start.y, GRID) }, { x: snap(p.x, GRID), y: snap(p.y, GRID) });
+}
+
 function insideGroupBody(group: CanvasNode, p: Point): boolean {
   const edge = 12 / view.zoom;
   return p.x > group.x + edge && p.x < group.x + group.width - edge && p.y > group.y + edge && p.y < group.y + group.height - edge;
@@ -903,6 +1096,15 @@ viewport.addEventListener("pointermove", (e) => {
       renderEdges();
       break;
     }
+    case "draw": {
+      const r = drawRect(drag.start, p, e.altKey);
+      Object.assign(drag.preview.style, { left: `${r.x}px`, top: `${r.y}px`, width: `${r.width}px`, height: `${r.height}px` });
+      drag.preview.innerHTML =
+        r.width > 4 && r.height > 4
+          ? `<svg viewBox="0 0 ${r.width} ${r.height}" width="${r.width}" height="${r.height}"><path d="${shapePath(drag.shape, r.width, r.height, 2)}"/></svg>`
+          : "";
+      break;
+    }
     case "connect": {
       const a = anchor(drag.from, drag.side);
       const over = nodeUnder(e.clientX, e.clientY);
@@ -956,6 +1158,35 @@ function endDrag(e: PointerEvent): void {
         commit();
       }
       break;
+    case "text": {
+      const node: CanvasNode = { id: newId(), type: "text", text: "", x: d.start.x - 6, y: d.start.y - 14, width: 40, height: 28 };
+      setNodeLook(node, { shape: "text" });
+      setTool(null);
+      addNode(node, true);
+      break;
+    }
+    case "draw": {
+      d.preview.remove();
+      let r = drawRect(d.start, p, e.altKey);
+      // A click, not a drag: the shape's usual size, centred on the click.
+      if (r.width * view.zoom < 10 && r.height * view.zoom < 10) {
+        const size = defaultShapeSize(d.shape);
+        r = { x: snap(d.start.x - size.width / 2, GRID), y: snap(d.start.y - size.height / 2, GRID), ...size };
+      }
+      const node: CanvasNode = {
+        id: newId(),
+        type: "text",
+        text: "",
+        x: r.x,
+        y: r.y,
+        width: Math.max(20, r.width),
+        height: Math.max(20, r.height),
+      };
+      setNodeLook(node, { ...shapeDefaults, shape: d.shape });
+      setTool(null);
+      addNode(node);
+      break;
+    }
     case "connect": {
       d.preview.remove();
       world.querySelectorAll(".node.drop-target").forEach((el) => el.classList.remove("drop-target"));
@@ -989,6 +1220,7 @@ viewport.addEventListener("pointerup", endDrag);
 viewport.addEventListener("pointercancel", endDrag);
 
 viewport.addEventListener("dblclick", (e) => {
+  if (tool) return;
   // Pointer capture makes the event's own target the viewport: look at what is under the pointer.
   const target = (document.elementFromPoint(e.clientX, e.clientY) ?? e.target) as HTMLElement;
   if (target.closest(".editor, .inline-input, .link-open")) return;
@@ -1054,8 +1286,11 @@ document.addEventListener("keydown", (e) => {
       paste(fragment, { x: b.x + b.width / 2 + GRID * 2, y: b.y + b.height / 2 + GRID * 2 });
     }
   } else if (key === "escape") {
+    if (tool || !shapeMenu.hidden) return setTool(null);
     selection.clear();
     showSelection();
+  } else if (!mod && !e.altKey && !e.shiftKey && (key === "t" || key === "r" || key === "o")) {
+    setTool(key === "t" ? { kind: "text" } : { kind: "shape", shape: key === "r" ? "rectangle" : "ellipse" });
   } else if (key === "enter" && selection.size === 1) {
     e.preventDefault();
     startEditing([...selection][0]!);
@@ -1237,6 +1472,11 @@ app.addEventListener("click", (e) => {
   const button = (e.target as HTMLElement).closest<HTMLElement>("button");
   if (!button || viewport.contains(button)) return;
   if (button.dataset.color !== undefined) return setColor(button.dataset.color);
+  if (button.dataset.shape) return setTool({ kind: "shape", shape: button.dataset.shape as ShapeKind });
+  if (button.dataset.look) {
+    if (button.parentElement === headMenu) closeHeadMenu();
+    return setSelectedNodeLook({ [button.dataset.look]: button.dataset.value });
+  }
   if (button.dataset.menu) return toggleHeadMenu(button);
   if (button.dataset.style) {
     if (button.parentElement === headMenu) closeHeadMenu();
@@ -1245,6 +1485,12 @@ app.addEventListener("click", (e) => {
   switch (button.dataset.action) {
     case "text":
       return addNode(textNodeAt(viewportCenter()), true);
+    case "text-tool":
+      return setTool(tool?.kind === "text" ? null : { kind: "text" });
+    case "shapes":
+      if (tool?.kind === "shape") return setTool(null);
+      shapeMenu.hidden = !shapeMenu.hidden;
+      return;
     case "file":
       return post({ type: "pickFile" });
     case "image":
@@ -1276,6 +1522,7 @@ app.addEventListener("click", (e) => {
 document.addEventListener("pointerdown", (e) => {
   const t = e.target as HTMLElement;
   if (!headMenu.hidden && !t.closest("#head-menu, .picker")) closeHeadMenu();
+  if (!shapeMenu.hidden && !t.closest('#shape-menu, [data-action="shapes"]')) shapeMenu.hidden = true;
 });
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && !headMenu.hidden) closeHeadMenu();

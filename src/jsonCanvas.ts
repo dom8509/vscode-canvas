@@ -266,3 +266,49 @@ export function setEdgeStyle(edge: CanvasEdge, style: Partial<EdgeStyle>): void 
     }
   }
 }
+
+// ---------------------------------------------------------------- shapes and free text
+// Text cards can be drawn as a shape, as in tldraw, or as bare text, as in
+// Excalidraw. Obsidian shows both as ordinary text cards.
+
+export type ShapeKind =
+  | "rectangle" | "ellipse" | "triangle" | "diamond" | "pentagon" | "hexagon"
+  | "octagon" | "star" | "rhombus" | "trapezoid" | "cloud" | "heart"
+  | "arrow-right" | "arrow-left" | "arrow-up" | "arrow-down" | "x-box" | "check-box";
+export type Fill = "none" | "semi" | "solid";
+export type FontSize = "s" | "m" | "l" | "xl";
+
+export const SHAPES: ShapeKind[] = [
+  "rectangle", "ellipse", "triangle", "diamond", "pentagon", "hexagon",
+  "octagon", "star", "rhombus", "trapezoid", "cloud", "heart",
+  "arrow-right", "arrow-left", "arrow-up", "arrow-down", "x-box", "check-box",
+];
+export const FILLS: Fill[] = ["none", "semi", "solid"];
+export const FONT_SIZES: FontSize[] = ["s", "m", "l", "xl"];
+
+/** How a text card is drawn, with the defaults filled in. "card" is a plain Obsidian card. */
+export interface NodeLook {
+  shape: ShapeKind | "text" | "card";
+  fill: Fill;
+  fontSize: FontSize;
+}
+
+export function nodeLook(node: CanvasNode): NodeLook {
+  const shape = node.type !== "text" ? "card" : node.shape === "text" ? "text" : oneOf(SHAPES, node.shape, "card" as ShapeKind);
+  return {
+    shape: shape as NodeLook["shape"],
+    fill: oneOf(FILLS, node.fill, "semi"),
+    fontSize: oneOf(FONT_SIZES, node.fontSize, "m"),
+  };
+}
+
+const LOOK_DEFAULTS: Record<keyof NodeLook, string> = { shape: "card", fill: "semi", fontSize: "m" };
+
+/** Sets part of a text card's look. Defaults are left out of the file. */
+export function setNodeLook(node: CanvasNode, look: Partial<NodeLook>): void {
+  if (node.type !== "text") return;
+  for (const [key, value] of Object.entries(look) as [keyof NodeLook, string][]) {
+    if (value === LOOK_DEFAULTS[key]) delete node[key];
+    else node[key] = value;
+  }
+}
