@@ -35,6 +35,15 @@ describe("setNodeLook", () => {
     expect(n).toEqual(card());
   });
 
+  it("styles file cards too, but not links or groups", () => {
+    const f: CanvasNode = { id: "f", type: "file", file: "a.md", x: 0, y: 0, width: 1, height: 1 };
+    setNodeLook(f, { fontSize: "l", fontFamily: "serif", strokeWidth: "bold" });
+    expect(nodeLook(f)).toMatchObject({ shape: "card", fontSize: "l", fontFamily: "serif", strokeWidth: "bold" });
+    const l: CanvasNode = { id: "l", type: "link", url: "https://x", x: 0, y: 0, width: 1, height: 1 };
+    setNodeLook(l, { fontSize: "l" });
+    expect(l.fontSize).toBeUndefined();
+  });
+
   it("gives shapes a medium font, but leaves a plain card's font to the editor", () => {
     expect(nodeLook({ ...card(), shape: "star" }).fontSize).toBe("m");
     expect(nodeLook({ ...card(), fontSize: "xl" }).fontSize).toBe("xl");

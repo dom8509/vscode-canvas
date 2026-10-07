@@ -410,11 +410,14 @@ function renderNodes(): void {
       const body = document.createElement("div");
       body.className = "content";
       el.append(body);
-      if (node.type === "text") {
+      if (node.type === "text" || node.type === "file") {
         const look = nodeLook(node);
         if (look.fontSize) el.classList.add(`font-${look.fontSize}`);
         if (look.fontFamily !== "sans") el.classList.add(`ff-${look.fontFamily}`);
         if (look.strokeWidth !== "normal") el.classList.add(`stroke-${look.strokeWidth}`);
+      }
+      if (node.type === "text") {
+        const look = nodeLook(node);
         if (look.shape === "text") el.classList.add("free-text");
         else if (look.shape !== "card") el.classList.add("shape", `fill-${look.fill}`);
         const empty = look.shape === "card" ? '<p class="placeholder">Double-click to write</p>' : "";
@@ -703,13 +706,11 @@ function updateColorbar(): void {
   props.querySelectorAll<HTMLElement>("[data-style]").forEach((b) => {
     b.classList.toggle("active", shared(b.dataset.style as keyof EdgeStyle) === b.dataset.value);
   });
-  // Text, border and shape properties, for the text cards they apply to.
-  const looks = [...selection]
-    .map(nodeById)
-    .filter((n): n is CanvasNode => n?.type === "text")
-    .map(nodeLook);
+  // Text, border and shape properties, for the text and file cards they apply to. Pictures have no text to set.
+  const styled = [...selection].map(nodeById).filter((n): n is CanvasNode => n?.type === "text" || n?.type === "file");
+  const looks = styled.filter((n) => !(n.type === "file" && isImagePath(n.file))).map(nodeLook);
   const shapes = looks.filter((l) => l.shape !== "card" && l.shape !== "text");
-  const bordered = looks.filter((l) => l.shape !== "text");
+  const bordered = styled.map(nodeLook).filter((l) => l.shape !== "text");
   props.classList.toggle("has-shapes", shapes.length > 0);
   props.classList.toggle("has-text", looks.length > 0);
   props.classList.toggle("has-border", bordered.length > 0);
@@ -775,10 +776,10 @@ function setSelectedNodeLook(look: Partial<NodeLook>): void {
   if (look.fill) shapeDefaults = { ...shapeDefaults, fill: look.fill };
   for (const id of selection) {
     const node = nodeById(id);
-    if (node?.type !== "text") continue;
+    if (node?.type !== "text" && node?.type !== "file") continue;
     const kind = nodeLook(node).shape;
-    // Text settings fit every text card; a border not free text; shape and fill only shapes.
-    const part: Partial<NodeLook> = { fontSize: look.fontSize, fontFamily: look.fontFamily };
+    // Text settings fit every text card and note; a border not free text; shape and fill only shapes.
+    const part: Partial<NodeLook> = node.type === "file" && isImagePath(node.file) ? {} : { fontSize: look.fontSize, fontFamily: look.fontFamily };
     if (kind !== "text") part.strokeWidth = look.strokeWidth;
     if (kind !== "text" && kind !== "card") Object.assign(part, { shape: look.shape, fill: look.fill });
     const given = Object.fromEntries(Object.entries(part).filter(([, v]) => v !== undefined));

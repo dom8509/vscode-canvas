@@ -26,10 +26,11 @@ open format Obsidian uses, so the files work in both.
   properties panel changes the shape, its fill (none, light, solid), color and
   text size. Shapes and free text are text cards in the file, so Obsidian
   shows them as ordinary cards.
-- **Fonts and borders:** for any text card, shape or free text the
+- **Fonts and borders:** for any text card, note, shape or free text the
   properties panel sets the font (sans serif, serif, monospace or
   handwriting) and the text size (S, M, L, XL). Cards and shapes also get a
-  border thickness (thin, normal, bold, extra bold). Connections have four
+  border thickness (thin, normal, bold, extra bold), and so do file cards
+  (pictures get the border only). Connections have four
   line widths too.
 - **Turn:** drag the round handle above any selected card, note, link,
   shape or free text to turn it (hold **Shift** for 15° steps). Groups stay
