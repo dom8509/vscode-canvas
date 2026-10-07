@@ -1,4 +1,4 @@
-import type { Side } from "../src/jsonCanvas";
+import type { HeadShape, PathStyle, Side } from "../src/jsonCanvas";
 
 export interface Point {
   x: number;
@@ -100,6 +100,97 @@ export function edgeCurve(a: Point, sideA: Side, b: Point, sideB: Side | null): 
     endDir: unit({ x: b.x - c2.x, y: b.y - c2.y }, sideB ? neg(SIDE_NORMALS[sideB]) : { x: 1, y: 0 }),
     startDir: unit({ x: a.x - c1.x, y: a.y - c1.y }, neg(na)),
   };
+}
+
+/** The path of an edge in the given style: a curve, a straight line or right-angled elbows. */
+export function edgePath(a: Point, sideA: Side, b: Point, sideB: Side | null, style: PathStyle = "curved"): EdgeCurve {
+  if (style === "curved") return edgeCurve(a, sideA, b, sideB);
+  const points = style === "straight" ? [a, b] : elbowPoints(a, sideA, b, sideB);
+  const last = points.length - 1;
+  return {
+    start: a,
+    end: b,
+    d: "M " + points.map((p) => `${p.x} ${p.y}`).join(" L "),
+    mid: pointAlong(points, 0.5),
+    endDir: unit({ x: b.x - points[last - 1]!.x, y: b.y - points[last - 1]!.y }, { x: 1, y: 0 }),
+    startDir: unit({ x: a.x - points[1]!.x, y: a.y - points[1]!.y }, neg(SIDE_NORMALS[sideA])),
+  };
+}
+
+const ELBOW_OUT = 24;
+
+/** Corners of a right-angled path that leaves `a` straight out of `sideA` and enters `b` straight into `sideB`. */
+export function elbowPoints(a: Point, sideA: Side, b: Point, sideB: Side | null): Point[] {
+  const na = SIDE_NORMALS[sideA];
+  const p1 = { x: a.x + na.x * ELBOW_OUT, y: a.y + na.y * ELBOW_OUT };
+  const nb = sideB ? SIDE_NORMALS[sideB] : { x: 0, y: 0 };
+  const p2 = { x: b.x + nb.x * ELBOW_OUT, y: b.y + nb.y * ELBOW_OUT };
+  const horizA = na.y === 0;
+  const horizB = sideB ? nb.y === 0 : horizA;
+  let middle: Point[];
+  if (horizA && horizB) {
+    const mx = (p1.x + p2.x) / 2;
+    middle = [{ x: mx, y: p1.y }, { x: mx, y: p2.y }];
+  } else if (!horizA && !horizB) {
+    const my = (p1.y + p2.y) / 2;
+    middle = [{ x: p1.x, y: my }, { x: p2.x, y: my }];
+  } else if (horizA) {
+    middle = [{ x: p2.x, y: p1.y }];
+  } else {
+    middle = [{ x: p1.x, y: p2.y }];
+  }
+  const all = [a, p1, ...middle, p2, b];
+  // Drop repeated points and corners on a straight run.
+  const out: Point[] = [];
+  for (const p of all) {
+    const prev = out[out.length - 1];
+    if (prev && Math.abs(prev.x - p.x) < 1e-6 && Math.abs(prev.y - p.y) < 1e-6) continue;
+    const before = out[out.length - 2];
+    if (before && prev && ((before.x === prev.x && prev.x === p.x) || (before.y === prev.y && prev.y === p.y))) out.pop();
+    out.push(p);
+  }
+  return out;
+}
+
+/** The point at fraction `t` of the length of a polyline. */
+export function pointAlong(points: Point[], t: number): Point {
+  const lengths = points.slice(1).map((p, i) => Math.hypot(p.x - points[i]!.x, p.y - points[i]!.y));
+  let left = lengths.reduce((s, l) => s + l, 0) * t;
+  for (let i = 0; i < lengths.length; i++) {
+    const l = lengths[i]!;
+    if (left <= l && l > 0) {
+      const a = points[i]!;
+      const b = points[i + 1]!;
+      return { x: a.x + ((b.x - a.x) * left) / l, y: a.y + ((b.y - a.y) * left) / l };
+    }
+    left -= l;
+  }
+  return points[points.length - 1]!;
+}
+
+/** SVG markup for the head of an edge whose tip is at `tip`, pointing along `dir`. Filled shapes use class "fill", lines "stroke". */
+export function headSvg(shape: HeadShape, tip: Point, dir: Point, size: number): string {
+  const at = (back: number, side: number): Point => ({
+    x: tip.x - dir.x * back - dir.y * side,
+    y: tip.y - dir.y * back + dir.x * side,
+  });
+  const pts = (...ps: Point[]) => ps.map((p) => `${p.x},${p.y}`).join(" ");
+  switch (shape) {
+    case "none":
+      return "";
+    case "arrow":
+      return `<polygon class="fill" points="${arrowHead(tip, dir, size)}"/>`;
+    case "open":
+      return `<polyline class="stroke" points="${pts(at(size, size * 0.55), tip, at(size, -size * 0.55))}"/>`;
+    case "dot": {
+      const c = at(size * 0.4, 0);
+      return `<circle class="fill" cx="${c.x}" cy="${c.y}" r="${size * 0.4}"/>`;
+    }
+    case "bar":
+      return `<polyline class="stroke" points="${pts(at(0, size * 0.55), at(0, -size * 0.55))}"/>`;
+    case "diamond":
+      return `<polygon class="fill" points="${pts(tip, at(size * 0.6, size * 0.4), at(size * 1.2, 0), at(size * 0.6, -size * 0.4))}"/>`;
+  }
 }
 
 function neg(p: Point): Point {

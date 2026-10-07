@@ -2,16 +2,23 @@ import {
   type CanvasData,
   type CanvasEdge,
   type CanvasNode,
+  type EdgeStyle,
   type FileNode,
   type GroupNode,
   type Side,
+  HEAD_SHAPES,
+  LINE_STYLES,
+  LINE_WIDTHS,
+  PATH_STYLES,
   cssColor,
+  edgeStyle,
   isImageFile,
   isImagePath,
   isTextPath,
   newId,
   parseCanvas,
   serializeCanvas,
+  setEdgeStyle,
 } from "../src/jsonCanvas";
 import type { DroppedItem, FileInfo, HostMessage, ImageData, WebviewMessage } from "../src/protocol";
 import {
@@ -19,13 +26,13 @@ import {
   type Rect,
   type View,
   anchor,
-  arrowHead,
   autoSides,
   boundsOf,
   containsRect,
-  edgeCurve,
+  edgePath,
   fitView,
   gridAround,
+  headSvg,
   rectFromPoints,
   rectsIntersect,
   sideFacing,
@@ -46,6 +53,7 @@ const post = (msg: WebviewMessage) => vscode.postMessage(msg);
 const GRID = 20;
 const SIDES: Side[] = ["top", "right", "bottom", "left"];
 const SVG_NS = "http://www.w3.org/2000/svg";
+const WIDTHS: Record<EdgeStyle["lineWidth"], number> = { thin: 1.5, normal: 2.5, bold: 4.5 };
 
 // ---------------------------------------------------------------- state
 
@@ -60,8 +68,10 @@ let spaceHeld = false;
 let lastPointer: Point = { x: 0, y: 0 };
 let clipboard: { nodes: CanvasNode[]; edges: CanvasEdge[] } | null = null;
 
-const saved = vscode.getState() as { view?: View } | undefined;
+const saved = vscode.getState() as { view?: View; edgeDefaults?: Partial<EdgeStyle> } | undefined;
 if (saved?.view) view = saved.view;
+/** The look last picked in the style bar. New edges get it, as in Excalidraw. */
+let edgeDefaults: Partial<EdgeStyle> = saved?.edgeDefaults ?? {};
 
 // ---------------------------------------------------------------- DOM
 
@@ -92,7 +102,20 @@ app.innerHTML = `
     ${["1", "2", "3", "4", "5", "6"].map((c) => `<button data-color="${c}" class="swatch" style="--swatch: ${cssColor(c)}"></button>`).join("")}
     <label class="swatch custom" title="Custom color"><input type="color"></label>
     <span class="sep"></span>
+    <span class="edge-tools">
+      <span class="sep"></span>
+      ${LINE_STYLES.map((v) => `<button data-style="lineStyle" data-value="${v}" title="${v[0]!.toUpperCase() + v.slice(1)} line">${styleIcon({ lineStyle: v })}</button>`).join("")}
+      <span class="sep"></span>
+      ${LINE_WIDTHS.map((v) => `<button data-style="lineWidth" data-value="${v}" title="${v[0]!.toUpperCase() + v.slice(1)}">${styleIcon({ lineWidth: v })}</button>`).join("")}
+      <span class="sep"></span>
+      ${PATH_STYLES.map((v) => `<button data-style="pathStyle" data-value="${v}" title="${v[0]!.toUpperCase() + v.slice(1)}">${styleIcon({ pathStyle: v })}</button>`).join("")}
+      <span class="sep"></span>
+      <button data-menu="fromHead" title="Start of the line"></button>
+      <button data-menu="toHead" title="End of the line"></button>
+    </span>
+    <span class="sep"></span>
     <button data-action="delete" title="Delete (Del)">${icon("trash")}</button>
+    <div id="head-menu" hidden></div>
   </div>
   <div id="zoombar">
     <button data-action="zoom-in" title="Zoom in">${icon("plus")}</button>
@@ -114,6 +137,29 @@ const marquee = document.getElementById("marquee")!;
 const errorBox = document.getElementById("error")!;
 const colorbar = document.getElementById("colorbar")!;
 const zoomLevel = document.getElementById("zoom-level")!;
+const headMenu = document.getElementById("head-menu")!;
+
+
+/** The SVG stroke settings of an edge's line. */
+function strokeOf(style: EdgeStyle): { width: number; dash: string } {
+  const w = WIDTHS[style.lineWidth];
+  const dash = style.lineStyle === "dashed" ? `${w * 3} ${w * 2.5}` : style.lineStyle === "dotted" ? `0 ${w * 2.4}` : "";
+  return { width: w, dash };
+}
+
+/** A small picture of an edge for the style bar. Only the given parts differ from a plain edge. */
+function styleIcon(part: Partial<EdgeStyle>): string {
+  const style: EdgeStyle = { fromHead: "none", toHead: "none", lineStyle: "solid", lineWidth: "normal", pathStyle: "straight", ...part };
+  const { width, dash } = strokeOf(style);
+  let d = "M 5 11 L 27 11";
+  if (part.pathStyle === "straight") d = "M 5 16 L 27 6";
+  if (part.pathStyle === "curved") d = "M 5 16 C 14 16, 18 6, 27 6";
+  if (part.pathStyle === "elbow") d = "M 5 16 L 16 16 L 16 6 L 27 6";
+  const heads =
+    headSvg(style.fromHead, { x: 4, y: 11 }, { x: -1, y: 0 }, 9) + headSvg(style.toHead, { x: 28, y: 11 }, { x: 1, y: 0 }, 9);
+  return `<svg class="style-icon" viewBox="0 0 32 22" width="32" height="22" style="--edge-width: ${Math.min(width, 3.5)}px">
+    <path class="stroke" d="${d}" stroke-dasharray="${dash}"/>${heads}</svg>`;
+}
 
 function icon(name: string): string {
   const paths: Record<string, string> = {
@@ -182,7 +228,7 @@ function applyView(): void {
   viewport.style.backgroundSize = `${GRID * view.zoom}px ${GRID * view.zoom}px`;
   viewport.classList.toggle("far", view.zoom < 0.5);
   zoomLevel.textContent = `${Math.round(view.zoom * 100)}%`;
-  vscode.setState({ view });
+  vscode.setState({ view, edgeDefaults });
 }
 
 function zoomBy(factor: number, at?: Point): void {
@@ -333,7 +379,7 @@ function edgeGeometry(edge: CanvasEdge) {
   const [autoFrom, autoTo] = autoSides(from, to);
   const fromSide = edge.fromSide ?? autoFrom;
   const toSide = edge.toSide ?? autoTo;
-  return edgeCurve(anchor(from, fromSide), fromSide, anchor(to, toSide), toSide);
+  return edgePath(anchor(from, fromSide), fromSide, anchor(to, toSide), toSide, edgeStyle(edge).pathStyle);
 }
 
 function renderEdges(): void {
@@ -348,6 +394,9 @@ function renderEdges(): void {
     if (selection.has(edge.id)) g.classList.add("selected");
     const color = cssColor(edge.color);
     if (color) g.style.setProperty("--edge-color", color);
+    const style = edgeStyle(edge);
+    const { width, dash } = strokeOf(style);
+    g.style.setProperty("--edge-width", `${width}px`);
 
     const hit = document.createElementNS(SVG_NS, "path");
     hit.setAttribute("d", geo.d);
@@ -355,10 +404,14 @@ function renderEdges(): void {
     const path = document.createElementNS(SVG_NS, "path");
     path.setAttribute("d", geo.d);
     path.classList.add("line");
+    if (dash) path.setAttribute("stroke-dasharray", dash);
     g.append(hit, path);
 
-    if ((edge.toEnd ?? "arrow") === "arrow") g.append(arrow(geo.end, geo.endDir));
-    if (edge.fromEnd === "arrow") g.append(arrow(geo.start, geo.startDir));
+    const size = 8 + width * 2;
+    g.insertAdjacentHTML(
+      "beforeend",
+      headSvg(style.toHead, geo.end, geo.endDir, size) + headSvg(style.fromHead, geo.start, geo.startDir, size),
+    );
     edgesLayer.append(g);
 
     if (edge.label) {
@@ -375,12 +428,6 @@ function renderEdges(): void {
   }
 }
 
-function arrow(tip: Point, dir: Point): SVGPolygonElement {
-  const poly = document.createElementNS(SVG_NS, "polygon");
-  poly.setAttribute("points", arrowHead(tip, dir, 12));
-  poly.classList.add("arrow");
-  return poly;
-}
 
 /** Shows a changed selection without redrawing, so the elements under the pointer stay the same (a double-click needs that). */
 function showSelection(): void {
@@ -398,6 +445,46 @@ function updateColorbar(): void {
   colorbar.querySelectorAll<HTMLElement>("[data-color]").forEach((b) => {
     b.classList.toggle("active", b.dataset.color === current);
   });
+
+  // The edge tools show when edges are selected. A value all of them share is marked.
+  const styles = [...selection].map(edgeById).filter((e): e is CanvasEdge => !!e).map(edgeStyle);
+  colorbar.classList.toggle("has-edges", styles.length > 0);
+  if (!styles.length) headMenu.hidden = true;
+  const shared = <K extends keyof EdgeStyle>(key: K): EdgeStyle[K] | undefined =>
+    styles.every((s) => s[key] === styles[0]?.[key]) ? styles[0]?.[key] : undefined;
+  colorbar.querySelectorAll<HTMLElement>("[data-style]").forEach((b) => {
+    b.classList.toggle("active", shared(b.dataset.style as keyof EdgeStyle) === b.dataset.value);
+  });
+  for (const key of ["fromHead", "toHead"] as const) {
+    const button = colorbar.querySelector<HTMLElement>(`[data-menu="${key}"]`)!;
+    button.innerHTML = styleIcon({ [key]: shared(key) ?? "arrow" });
+  }
+}
+
+/** Sets part of the look of the selected edges, and of new ones. */
+function setSelectedEdgeStyle(style: Partial<EdgeStyle>): void {
+  edgeDefaults = { ...edgeDefaults, ...style };
+  for (const id of selection) {
+    const edge = edgeById(id);
+    if (edge) setEdgeStyle(edge, style);
+  }
+  commit();
+}
+
+function toggleHeadMenu(button: HTMLElement): void {
+  const key = button.dataset.menu as "fromHead" | "toHead";
+  if (!headMenu.hidden && headMenu.dataset.for === key) {
+    headMenu.hidden = true;
+    return;
+  }
+  headMenu.dataset.for = key;
+  headMenu.innerHTML = HEAD_SHAPES.map(
+    (v) => `<button data-style="${key}" data-value="${v}" title="${v[0]!.toUpperCase() + v.slice(1)}">${styleIcon({ [key]: v })}</button>`,
+  ).join("");
+  // Under the button, kept inside the bar so it does not run off the edge.
+  headMenu.style.right = `${Math.max(0, colorbar.clientWidth - button.offsetLeft - button.offsetWidth - 40)}px`;
+  headMenu.hidden = false;
+  updateColorbar();
 }
 
 // ---------------------------------------------------------------- creating
@@ -786,7 +873,7 @@ viewport.addEventListener("pointermove", (e) => {
       const over = nodeUnder(e.clientX, e.clientY);
       const toSide = over && over.id !== drag.from.id ? sideFacing(over, nearCenter(over, p) ? a : p) : null;
       const b = over && toSide ? anchor(over, toSide) : p;
-      drag.preview.setAttribute("d", edgeCurve(a, drag.side, b, toSide).d);
+      drag.preview.setAttribute("d", edgePath(a, drag.side, b, toSide, edgeDefaults.pathStyle).d);
       world.querySelectorAll(".node.drop-target").forEach((el) => el.classList.remove("drop-target"));
       if (over && over.id !== drag.from.id) nodeElement(over.id)?.classList.add("drop-target");
       break;
@@ -853,6 +940,7 @@ function endDrag(e: PointerEvent): void {
         toNode: target.id,
         toSide: sideFacing(target, over && !nearCenter(over, p) ? p : anchor(d.from, d.side)),
       };
+      setEdgeStyle(edge, edgeDefaults);
       data.edges.push(edge);
       selection.clear();
       selection.add(over ? edge.id : target.id);
@@ -1114,6 +1202,11 @@ app.addEventListener("click", (e) => {
   const button = (e.target as HTMLElement).closest<HTMLElement>("button");
   if (!button || viewport.contains(button)) return;
   if (button.dataset.color !== undefined) return setColor(button.dataset.color);
+  if (button.dataset.menu) return toggleHeadMenu(button);
+  if (button.dataset.style) {
+    if (button.parentElement === headMenu) headMenu.hidden = true;
+    return setSelectedEdgeStyle({ [button.dataset.style]: button.dataset.value });
+  }
   switch (button.dataset.action) {
     case "text":
       return addNode(textNodeAt(viewportCenter()), true);

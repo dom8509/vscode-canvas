@@ -382,14 +382,17 @@ button {
 
 .edge {
   --edge-color: var(--edge);
+  --edge-width: 2.5px;
 }
 
 .edge .line,
+.edge .stroke,
 .preview {
   fill: none;
   stroke: var(--edge-color, var(--accent));
-  stroke-width: 2.5px;
+  stroke-width: var(--edge-width, 2.5px);
   stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .preview {
@@ -404,17 +407,19 @@ button {
   cursor: pointer;
 }
 
-.edge .arrow {
+.edge .fill {
   fill: var(--edge-color);
   stroke: none;
 }
 
-.edge.selected .line {
-  stroke-width: 4px;
+.edge.selected .line,
+.edge.selected .stroke {
+  stroke-width: calc(var(--edge-width) + 1.5px);
 }
 
 .edge.selected .line,
-.edge.selected .arrow {
+.edge.selected .stroke,
+.edge.selected .fill {
   filter: drop-shadow(0 0 3px var(--accent));
 }
 
@@ -584,4 +589,58 @@ button {
   background: var(--vscode-button-background);
   color: var(--vscode-button-foreground);
   cursor: pointer;
+}
+
+/* ------------------------------------------------------------ edge styles */
+
+#colorbar .edge-tools {
+  display: none;
+  align-items: center;
+  gap: 2px;
+}
+
+#colorbar.has-edges .edge-tools {
+  display: flex;
+}
+
+#colorbar button.active {
+  background: var(--vscode-toolbar-activeBackground, rgba(128, 128, 128, 0.35));
+}
+
+.style-icon .stroke {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: var(--edge-width, 2px);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.style-icon .fill {
+  fill: currentColor;
+  stroke: none;
+}
+
+#head-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 8px;
+  background: var(--bar-bg);
+  border: 1px solid var(--card-border);
+  box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.25));
+}
+
+#colorbar [data-menu]::after {
+  content: "";
+  margin-left: 2px;
+  border: 4px solid transparent;
+  border-top-color: currentColor;
+  transform: translateY(2px);
+  opacity: 0.6;
+}
+
+#head-menu[hidden] {
+  display: none;
 }

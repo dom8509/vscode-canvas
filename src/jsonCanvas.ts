@@ -202,3 +202,67 @@ export function uniqueFileName(name: string, taken: (name: string) => boolean): 
     if (!taken(candidate)) return candidate;
   }
 }
+
+// ---------------------------------------------------------------- edge styles
+// JSON Canvas knows only "none" and "arrow" ends. The other looks are kept in
+// extra properties, so Obsidian still shows an arrow where there is a head.
+
+export type HeadShape = "none" | "arrow" | "open" | "dot" | "bar" | "diamond";
+export type LineStyle = "solid" | "dashed" | "dotted";
+export type LineWidth = "thin" | "normal" | "bold";
+export type PathStyle = "curved" | "straight" | "elbow";
+
+export const HEAD_SHAPES: HeadShape[] = ["none", "arrow", "open", "dot", "bar", "diamond"];
+export const LINE_STYLES: LineStyle[] = ["solid", "dashed", "dotted"];
+export const LINE_WIDTHS: LineWidth[] = ["thin", "normal", "bold"];
+export const PATH_STYLES: PathStyle[] = ["curved", "straight", "elbow"];
+
+/** The look of an edge, with the defaults filled in. */
+export interface EdgeStyle {
+  fromHead: HeadShape;
+  toHead: HeadShape;
+  lineStyle: LineStyle;
+  lineWidth: LineWidth;
+  pathStyle: PathStyle;
+}
+
+function oneOf<T extends string>(list: T[], v: unknown, fallback: T): T {
+  return list.includes(v as T) ? (v as T) : fallback;
+}
+
+export function edgeStyle(edge: CanvasEdge): EdgeStyle {
+  const head = (end: EndShape | undefined, shape: unknown, fallback: EndShape): HeadShape =>
+    (end ?? fallback) === "none" ? "none" : oneOf(HEAD_SHAPES, shape, "arrow");
+  return {
+    fromHead: head(edge.fromEnd, edge.fromHead, "none"),
+    toHead: head(edge.toEnd, edge.toHead, "arrow"),
+    lineStyle: oneOf(LINE_STYLES, edge.lineStyle, "solid"),
+    lineWidth: oneOf(LINE_WIDTHS, edge.lineWidth, "normal"),
+    pathStyle: oneOf(PATH_STYLES, edge.pathStyle, "curved"),
+  };
+}
+
+const STYLE_DEFAULTS: Record<"lineStyle" | "lineWidth" | "pathStyle", string> = {
+  lineStyle: "solid",
+  lineWidth: "normal",
+  pathStyle: "curved",
+};
+
+/** Sets part of an edge's look. Defaults are left out of the file. */
+export function setEdgeStyle(edge: CanvasEdge, style: Partial<EdgeStyle>): void {
+  for (const [key, value] of Object.entries(style) as [keyof EdgeStyle, string][]) {
+    if (key === "fromHead" || key === "toHead") {
+      const end = key === "fromHead" ? "fromEnd" : "toEnd";
+      const defaultEnd = key === "fromHead" ? "none" : "arrow";
+      const plain = value === "none" ? "none" : "arrow";
+      if (plain === defaultEnd) delete edge[end];
+      else edge[end] = plain;
+      if (value === "none" || value === "arrow") delete edge[key];
+      else edge[key] = value;
+    } else if (value === STYLE_DEFAULTS[key]) {
+      delete edge[key];
+    } else {
+      edge[key] = value;
+    }
+  }
+}

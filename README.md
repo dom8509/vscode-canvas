@@ -34,6 +34,11 @@ open format Obsidian uses, so the files work in both.
 - **Connect:** hover a card, then drag one of the dots on its sides onto
   another card. Drop on empty space to make a new card there, connected.
   Double-click a connection to give it a label.
+- **Line and arrow styles:** select connections; the bar at the top sets
+  solid, dashed or dotted lines, thin, normal or bold width, curved, straight
+  or right-angled paths, and the shape at each end (none, arrow, open arrow,
+  dot, bar, diamond), as in Excalidraw. New connections take the style you
+  picked last. Obsidian shows the extra styles as plain lines and arrows.
 - **Colors:** select cards or connections; the bar at the top sets one of six
   colors or a custom one.
 - **Move and resize:** drag cards (they snap to the grid; hold **Alt** to
