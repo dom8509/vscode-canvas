@@ -836,6 +836,13 @@ function textNodeAt(p: Point, text = ""): CanvasNode {
   return { id: newId(), type: "text", text, x: snap(p.x - 125, GRID), y: snap(p.y - 30, GRID), width: 260, height: 80 };
 }
 
+/** Empty free text whose first line starts at `p`, as in Excalidraw. Left empty, it disappears again. */
+function freeTextAt(p: Point): CanvasNode {
+  const node: CanvasNode = { id: newId(), type: "text", text: "", x: p.x - 6, y: p.y - 14, width: 40, height: 28 };
+  setNodeLook(node, { shape: "text" });
+  return node;
+}
+
 function fileNodeAt(p: Point, file: string): CanvasNode {
   const image = isImagePath(file);
   const width = image ? 400 : 400;
@@ -1375,10 +1382,8 @@ function endDrag(e: PointerEvent): void {
       }
       break;
     case "text": {
-      const node: CanvasNode = { id: newId(), type: "text", text: "", x: d.start.x - 6, y: d.start.y - 14, width: 40, height: 28 };
-      setNodeLook(node, { shape: "text" });
       setTool(null);
-      addNode(node, true);
+      addNode(freeTextAt(d.start), true);
       break;
     }
     case "rotate":
@@ -1448,7 +1453,7 @@ viewport.addEventListener("dblclick", (e) => {
   const node = nodeEl && nodeById(nodeEl.dataset.id!);
   if (node) {
     if (node.type === "file") post({ type: "openFile", path: node.file, subpath: node.subpath });
-    else if (node.type === "group" && insideGroupBody(node, p) && !target.closest(".group-label")) addNode(textNodeAt(p), true);
+    else if (node.type === "group" && insideGroupBody(node, p) && !target.closest(".group-label")) addNode(freeTextAt(p), true);
     else startEditing(node.id);
     return;
   }
@@ -1457,7 +1462,7 @@ viewport.addEventListener("dblclick", (e) => {
     editEdgeLabel((edgeEl as HTMLElement).dataset.id!);
     return;
   }
-  addNode(textNodeAt(p), true);
+  addNode(freeTextAt(p), true);
 });
 
 viewport.addEventListener(

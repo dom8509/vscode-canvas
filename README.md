@@ -10,12 +10,12 @@ open format Obsidian uses, so the files work in both.
 
 - **Create a canvas:** run *Canvas: New Canvas* from the Command Palette, or
   right-click a folder in the Explorer. Any `*.canvas` file opens on the canvas.
-- **Cards:** double-click the empty canvas to add a card and write in it
+- **Cards:** the card button in the bottom toolbar adds a card to write in
   (Markdown: headings, lists, tasks, **bold**, *italic*, `code`, links,
   `[[wikilinks]]`). Double-click a card to edit it; Escape or a click outside
   ends editing.
-- **Text:** the *T* button (or the **T** key) picks the text tool; click on
-  the canvas and type, as in Excalidraw. Free text has no box and grows with
+- **Text:** double-click the empty canvas, or pick the text tool with the *T*
+  button (or the **T** key) and click; then type, as in Excalidraw. Free text has no box and grows with
   what you write; the properties panel sets its size (S, M, L, XL) and color.
   Text left empty disappears.
 - **Shapes:** the shapes button opens 18 shapes, as in tldraw: rectangle,
