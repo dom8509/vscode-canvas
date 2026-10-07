@@ -312,3 +312,21 @@ export function setNodeLook(node: CanvasNode, look: Partial<NodeLook>): void {
     else node[key] = value;
   }
 }
+
+/** An angle in degrees, brought into (-180, 180]. */
+export function normalizeAngle(deg: number): number {
+  let r = ((deg % 360) + 360) % 360;
+  if (r > 180) r -= 360;
+  return Math.round(r * 100) / 100 || 0;
+}
+
+/** How far a card is turned, clockwise in degrees. Not part of JSON Canvas: Obsidian shows it upright. */
+export function rotationOf(node: CanvasNode): number {
+  return typeof node.rotation === "number" && Number.isFinite(node.rotation) ? normalizeAngle(node.rotation) : 0;
+}
+
+export function setRotation(node: CanvasNode, deg: number): void {
+  const r = normalizeAngle(deg);
+  if (r === 0) delete node.rotation;
+  else node.rotation = r;
+}

@@ -26,6 +26,10 @@ open format Obsidian uses, so the files work in both.
   properties panel changes the shape, its fill (none, light, solid), color and
   text size. Shapes and free text are text cards in the file, so Obsidian
   shows them as ordinary cards.
+- **Turn:** drag the round handle above a selected shape or free text to
+  turn it (hold **Shift** for 15° steps), or use the rotation buttons in the
+  properties panel (90° left, upright, 90° right). Connections follow the
+  turned sides. Obsidian shows turned cards upright.
 - **Notes and media:** the file button in the bottom toolbar adds a file from
   the workspace. Markdown notes show their text, images show the picture.
   You can also drag notes and files onto the canvas — from the Explorer, an

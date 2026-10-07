@@ -996,3 +996,45 @@ button {
 .node.free-text.editing .content {
   padding: 0;
 }
+
+/* ------------------------------------------------------------ turning */
+
+.rotate {
+  position: absolute;
+  left: 50%;
+  top: -30px;
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
+  border-radius: 50%;
+  background: var(--vscode-editor-background);
+  border: 2px solid var(--accent);
+  box-sizing: border-box;
+  cursor: grab;
+  z-index: 2;
+  display: none;
+}
+
+/* A short stem joins the handle to the card. */
+.rotate::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  height: 16px;
+  border-left: 1.5px solid var(--accent);
+  transform: translateX(-50%);
+}
+
+.node.selected > .rotate {
+  display: block;
+}
+
+.node.editing > .rotate {
+  display: none;
+}
+
+#props .angle {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}

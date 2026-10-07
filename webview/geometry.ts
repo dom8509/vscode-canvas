@@ -43,6 +43,22 @@ export function anchor(r: Rect, side: Side): Point {
   }
 }
 
+/** `p` turned by `deg` degrees clockwise around `c`. */
+export function rotatePoint(p: Point, c: Point, deg: number): Point {
+  if (!deg) return p;
+  const a = (deg * Math.PI) / 180;
+  const cos = Math.cos(a), sin = Math.sin(a);
+  const dx = p.x - c.x, dy = p.y - c.y;
+  return { x: c.x + dx * cos - dy * sin, y: c.y + dx * sin + dy * cos };
+}
+
+/** The side a box's `side` faces most nearly after the box is turned by `deg`. */
+export function turnedSide(side: Side, deg: number): Side {
+  const order: Side[] = ["top", "right", "bottom", "left"];
+  const steps = Math.round(deg / 90);
+  return order[(((order.indexOf(side) + steps) % 4) + 4) % 4]!;
+}
+
 export function center(r: Rect): Point {
   return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
 }

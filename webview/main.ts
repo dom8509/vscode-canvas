@@ -18,6 +18,7 @@ import {
   cssColor,
   edgeStyle,
   nodeLook,
+  rotationOf,
   isImageFile,
   isImagePath,
   isTextPath,
@@ -26,6 +27,7 @@ import {
   serializeCanvas,
   setEdgeStyle,
   setNodeLook,
+  setRotation,
 } from "../src/jsonCanvas";
 import type { DroppedItem, FileInfo, HostMessage, ImageData, WebviewMessage } from "../src/protocol";
 import {
@@ -33,7 +35,7 @@ import {
   type Rect,
   type View,
   anchor,
-  autoSides,
+  center,
   boundsOf,
   containsRect,
   edgePath,
@@ -42,7 +44,9 @@ import {
   headSvg,
   rectFromPoints,
   rectsIntersect,
+  rotatePoint,
   sideFacing,
+  turnedSide,
   snap,
   zoomAt,
 } from "./geometry";
@@ -131,6 +135,14 @@ app.innerHTML = `
       <h3>Shape</h3>
       <div class="pickers"><button class="picker" data-menu="shape" title="Shape"></button></div>
       ${segmentedLook("fill", FILLS)}
+    </section>
+    <section class="text-tools">
+      <h3>Rotation</h3>
+      <div class="segmented">
+        <button data-rotate="-90" title="Turn left 90°">${icon("turn-left")}</button>
+        <button data-rotate="reset" class="angle" title="Upright">0°</button>
+        <button data-rotate="90" title="Turn right 90°">${icon("turn-right")}</button>
+      </div>
     </section>
     <section class="text-tools">
       <h3>Text size</h3>
@@ -241,6 +253,8 @@ function icon(name: string): string {
     image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/>',
     link: '<path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/>',
     type: '<path d="M5 6V4h14v2M12 4v16M9 20h6"/>',
+    "turn-left": '<path d="M4 4v5h5"/><path d="M4.5 9A8 8 0 1 1 6 17"/>',
+    "turn-right": '<path d="M20 4v5h-5"/><path d="M19.5 9A8 8 0 1 0 18 17"/>',
     shapes: '<rect x="3" y="3" width="10" height="10" rx="2"/><circle cx="16.5" cy="16.5" r="4.5"/>',
     group: '<rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="3 3"/><rect x="7" y="8" width="6" height="5" rx="1"/>',
     trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
@@ -377,6 +391,12 @@ function renderNodes(): void {
     const resize = document.createElement("div");
     resize.className = "resize";
     el.append(resize);
+    if (canRotate(node)) {
+      const turn = document.createElement("div");
+      turn.className = "rotate";
+      turn.title = "Drag to turn (Shift: 15° steps)";
+      el.append(turn);
+    }
   }
   if (missing.length) post({ type: "resolve", paths: missing });
   if (editing) startEditing(editing);
@@ -387,6 +407,8 @@ function placeNode(el: HTMLElement, node: CanvasNode): void {
   el.style.top = `${node.y}px`;
   el.style.width = `${node.width}px`;
   el.style.height = `${node.height}px`;
+  const turn = rotationOf(node);
+  el.style.transform = turn ? `rotate(${turn}deg)` : "";
   if (el.classList.contains("shape")) drawShape(el, node);
 }
 
@@ -498,10 +520,32 @@ function edgeGeometry(edge: CanvasEdge) {
   const from = nodeById(edge.fromNode);
   const to = nodeById(edge.toNode);
   if (!from || !to) return undefined;
-  const [autoFrom, autoTo] = autoSides(from, to);
-  const fromSide = edge.fromSide ?? autoFrom;
-  const toSide = edge.toSide ?? autoTo;
-  return edgePath(anchor(from, fromSide), fromSide, anchor(to, toSide), toSide, edgeStyle(edge).pathStyle);
+  const fromSide = edge.fromSide ?? facingSide(from, center(to));
+  const toSide = edge.toSide ?? facingSide(to, center(from));
+  return edgePath(
+    nodeAnchor(from, fromSide),
+    turnedSide(fromSide, rotationOf(from)),
+    nodeAnchor(to, toSide),
+    turnedSide(toSide, rotationOf(to)),
+    edgeStyle(edge).pathStyle,
+  );
+}
+
+// A turned card keeps its box in the file; its sides turn with it.
+
+/** Where an edge meets a side of a card, turned with the card. */
+function nodeAnchor(node: CanvasNode, side: Side): Point {
+  return rotatePoint(anchor(node, side), center(node), rotationOf(node));
+}
+
+/** The side of a card, in its own turned frame, that faces the point `p`. */
+function facingSide(node: CanvasNode, p: Point): Side {
+  return sideFacing(node, rotatePoint(p, center(node), -rotationOf(node)));
+}
+
+/** Shapes and free text can be turned, as in tldraw. Obsidian's own cards stay upright. */
+function canRotate(node: CanvasNode): boolean {
+  return node.type === "text" && nodeLook(node).shape !== "card";
 }
 
 function renderEdges(): void {
@@ -591,6 +635,9 @@ function updateColorbar(): void {
     const key = b.dataset.look as keyof NodeLook;
     b.classList.toggle("active", sharedLook(key === "fontSize" ? looks : shapes, key) === b.dataset.value);
   });
+  const turns = [...selection].map(nodeById).filter((n): n is CanvasNode => !!n && canRotate(n)).map(rotationOf);
+  const sharedTurn = turns.length && turns.every((t) => t === turns[0]) ? turns[0]! : null;
+  props.querySelector<HTMLElement>(".angle")!.textContent = sharedTurn === null ? "–" : `${Math.round(sharedTurn)}°`;
   const shapePicker = props.querySelector<HTMLElement>('[data-menu="shape"]')!;
   const sharedShape = sharedLook(shapes, "shape");
   shapePicker.innerHTML = `${sharedShape ? shapeIcon(sharedShape as ShapeKind) : "<span>Mixed</span>"}<span class="caret"></span>`;
@@ -625,6 +672,15 @@ function toggleHeadMenu(picker: HTMLElement): void {
 function closeHeadMenu(): void {
   headMenu.hidden = true;
   props.querySelectorAll(".picker.open").forEach((p) => p.classList.remove("open"));
+}
+
+/** Turns the selected shapes and free text by a step, or sets them upright. */
+function rotateSelected(step: string): void {
+  for (const id of selection) {
+    const node = nodeById(id);
+    if (node && canRotate(node)) setRotation(node, step === "reset" ? 0 : rotationOf(node) + Number(step));
+  }
+  commit();
 }
 
 /** The fill picked last. New shapes get it, as edges get their last style. */
@@ -893,7 +949,8 @@ type Drag =
   | { kind: "pan"; start: Point; view: View }
   | { kind: "marquee"; start: Point; additive: Set<string> }
   | { kind: "move"; start: Point; nodes: { node: CanvasNode; x: number; y: number }[]; moved: boolean; clickedId: string }
-  | { kind: "resize"; start: Point; node: CanvasNode; width: number; height: number }
+  | { kind: "resize"; start: Point; node: CanvasNode; width: number; height: number; fixed: Point }
+  | { kind: "rotate"; node: CanvasNode; center: Point; startAngle: number; rotation: number }
   | { kind: "connect"; from: CanvasNode; side: Side; preview: SVGPathElement }
   | { kind: "draw"; start: Point; shape: ShapeKind; preview: HTMLElement }
   | { kind: "text"; start: Point };
@@ -947,7 +1004,16 @@ viewport.addEventListener("pointerdown", (e) => {
   }
 
   if (node && target.classList.contains("resize")) {
-    drag = { kind: "resize", start: p, node, width: node.width, height: node.height };
+    // The corner opposite the handle stays where it is, also on a turned card.
+    const fixed = rotatePoint({ x: node.x, y: node.y }, center(node), rotationOf(node));
+    drag = { kind: "resize", start: p, node, width: node.width, height: node.height, fixed };
+    viewport.setPointerCapture(e.pointerId);
+    return;
+  }
+
+  if (node && target.classList.contains("rotate")) {
+    const c = center(node);
+    drag = { kind: "rotate", node, center: c, startAngle: angleTo(c, p), rotation: rotationOf(node) };
     viewport.setPointerCapture(e.pointerId);
     return;
   }
@@ -1023,6 +1089,11 @@ function startPlacing(e: PointerEvent, p: Point): void {
   viewport.setPointerCapture(e.pointerId);
 }
 
+/** The direction from `c` to `p`, in degrees clockwise from straight up. */
+function angleTo(c: Point, p: Point): number {
+  return (Math.atan2(p.y - c.y, p.x - c.x) * 180) / Math.PI + 90;
+}
+
 function drawRect(start: Point, p: Point, free: boolean): Rect {
   if (free) return rectFromPoints(start, p);
   return rectFromPoints({ x: snap(start.x, GRID), y: snap(start.y, GRID) }, { x: snap(p.x, GRID), y: snap(p.y, GRID) });
@@ -1089,10 +1160,32 @@ viewport.addEventListener("pointermove", (e) => {
       const n = drag.node;
       const minW = 60;
       const minH = 40;
-      n.width = Math.max(minW, e.altKey ? drag.width + p.x - drag.start.x : snap(n.x + drag.width + p.x - drag.start.x, GRID) - n.x);
-      n.height = Math.max(minH, e.altKey ? drag.height + p.y - drag.start.y : snap(n.y + drag.height + p.y - drag.start.y, GRID) - n.y);
+      const turn = rotationOf(n);
+      if (turn) {
+        // Measure the drag along the card's own turned sides.
+        const local = rotatePoint({ x: p.x - drag.start.x, y: p.y - drag.start.y }, { x: 0, y: 0 }, -turn);
+        const w = Math.max(minW, drag.width + local.x);
+        const h = Math.max(minH, drag.height + local.y);
+        const c = rotatePoint({ x: drag.fixed.x + w / 2, y: drag.fixed.y + h / 2 }, drag.fixed, turn);
+        n.width = w;
+        n.height = h;
+        n.x = c.x - w / 2;
+        n.y = c.y - h / 2;
+      } else {
+        n.width = Math.max(minW, e.altKey ? drag.width + p.x - drag.start.x : snap(n.x + drag.width + p.x - drag.start.x, GRID) - n.x);
+        n.height = Math.max(minH, e.altKey ? drag.height + p.y - drag.start.y : snap(n.y + drag.height + p.y - drag.start.y, GRID) - n.y);
+      }
       const el = nodeElement(n.id);
       if (el) placeNode(el, n);
+      renderEdges();
+      break;
+    }
+    case "rotate": {
+      let turn = drag.rotation + angleTo(drag.center, p) - drag.startAngle;
+      if (e.shiftKey) turn = Math.round(turn / 15) * 15;
+      setRotation(drag.node, turn);
+      const el = nodeElement(drag.node.id);
+      if (el) placeNode(el, drag.node);
       renderEdges();
       break;
     }
@@ -1106,11 +1199,13 @@ viewport.addEventListener("pointermove", (e) => {
       break;
     }
     case "connect": {
-      const a = anchor(drag.from, drag.side);
+      const a = nodeAnchor(drag.from, drag.side);
       const over = nodeUnder(e.clientX, e.clientY);
-      const toSide = over && over.id !== drag.from.id ? sideFacing(over, nearCenter(over, p) ? a : p) : null;
-      const b = over && toSide ? anchor(over, toSide) : p;
-      drag.preview.setAttribute("d", edgePath(a, drag.side, b, toSide, edgeDefaults.pathStyle).d);
+      const toSide = over && over.id !== drag.from.id ? facingSide(over, nearCenter(over, p) ? a : p) : null;
+      const b = over && toSide ? nodeAnchor(over, toSide) : p;
+      const fromDir = turnedSide(drag.side, rotationOf(drag.from));
+      const toDir = over && toSide ? turnedSide(toSide, rotationOf(over)) : null;
+      drag.preview.setAttribute("d", edgePath(a, fromDir, b, toDir, edgeDefaults.pathStyle).d);
       world.querySelectorAll(".node.drop-target").forEach((el) => el.classList.remove("drop-target"));
       if (over && over.id !== drag.from.id) nodeElement(over.id)?.classList.add("drop-target");
       break;
@@ -1165,6 +1260,9 @@ function endDrag(e: PointerEvent): void {
       addNode(node, true);
       break;
     }
+    case "rotate":
+      if (rotationOf(d.node) !== d.rotation) commit();
+      break;
     case "draw": {
       d.preview.remove();
       let r = drawRect(d.start, p, e.altKey);
@@ -1204,7 +1302,7 @@ function endDrag(e: PointerEvent): void {
         fromNode: d.from.id,
         fromSide: d.side,
         toNode: target.id,
-        toSide: sideFacing(target, over && !nearCenter(over, p) ? p : anchor(d.from, d.side)),
+        toSide: facingSide(target, over && !nearCenter(over, p) ? p : nodeAnchor(d.from, d.side)),
       };
       setEdgeStyle(edge, edgeDefaults);
       data.edges.push(edge);
@@ -1472,6 +1570,7 @@ app.addEventListener("click", (e) => {
   const button = (e.target as HTMLElement).closest<HTMLElement>("button");
   if (!button || viewport.contains(button)) return;
   if (button.dataset.color !== undefined) return setColor(button.dataset.color);
+  if (button.dataset.rotate) return rotateSelected(button.dataset.rotate);
   if (button.dataset.shape) return setTool({ kind: "shape", shape: button.dataset.shape as ShapeKind });
   if (button.dataset.look) {
     if (button.parentElement === headMenu) closeHeadMenu();
