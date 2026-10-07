@@ -1,0 +1,14 @@
+{
+	"nodes":[
+		{"id":"g1","type":"group","x":-40,"y":-80,"width":740,"height":420,"label":"Getting started","color":"6"},
+		{"id":"t1","type":"text","text":"# Welcome\n\nDouble-click the canvas to add a card.\nDrag a **dot** on a card's side to connect it.","x":0,"y":0,"width":300,"height":180,"color":"4"},
+		{"id":"f1","type":"file","file":"notes/Ideas.md","x":400,"y":-20,"width":260,"height":300},
+		{"id":"l1","type":"link","url":"https://jsoncanvas.org","x":0,"y":420,"width":320,"height":120},
+		{"id":"t2","type":"text","text":"- [x] Pan: scroll, or Space + drag\n- [ ] Zoom: Ctrl + scroll\n- [ ] Link to [[Ideas]]","x":420,"y":420,"width":300,"height":140,"color":"2"}
+	],
+	"edges":[
+		{"id":"e1","fromNode":"t1","fromSide":"right","toNode":"f1","toSide":"left","label":"see"},
+		{"id":"e2","fromNode":"t1","fromSide":"bottom","toNode":"l1","toSide":"top","color":"1"},
+		{"id":"e3","fromNode":"f1","toNode":"t2","fromEnd":"arrow"}
+	]
+}

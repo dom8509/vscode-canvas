@@ -1,0 +1,583 @@
+:root {
+  --accent: var(--vscode-focusBorder, #007fd4);
+  --card-bg: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+  --card-border: var(--vscode-widget-border, var(--vscode-editorWidget-border, rgba(128, 128, 128, 0.45)));
+  --muted: var(--vscode-descriptionForeground);
+  --dot: var(--vscode-editorLineNumber-foreground, rgba(128, 128, 128, 0.5));
+  --edge: var(--vscode-editorLineNumber-foreground, #888);
+  --bar-bg: var(--vscode-editorWidget-background);
+  --radius: 8px;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--vscode-editor-background);
+  color: var(--vscode-editor-foreground);
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size, 13px);
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+/* ------------------------------------------------------------ viewport */
+
+#viewport {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  outline: none;
+  cursor: default;
+  background-image: radial-gradient(circle, var(--dot) 1px, transparent 1.2px);
+  touch-action: none;
+  user-select: none;
+}
+
+#viewport.far {
+  background-image: none;
+}
+
+#viewport.can-pan {
+  cursor: grab;
+}
+
+#viewport.panning,
+#viewport.panning * {
+  cursor: grabbing !important;
+}
+
+#world {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  transform-origin: 0 0;
+}
+
+#groups,
+#nodes,
+#labels {
+  position: absolute;
+  left: 0;
+  top: 0;
+}
+
+#edges {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  overflow: visible;
+  pointer-events: none;
+}
+
+#marquee {
+  position: absolute;
+  border: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------------ nodes */
+
+.node {
+  position: absolute;
+  box-sizing: border-box;
+  border-radius: var(--radius);
+  border: 2px solid var(--card-border);
+  background: var(--card-bg);
+  --node-color: var(--card-border);
+}
+
+.node.colored {
+  border-color: var(--node-color);
+  background: color-mix(in srgb, var(--node-color) 10%, var(--card-bg));
+}
+
+.node.selected {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.node.drop-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: 3px;
+}
+
+.node .content {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  padding: 10px 16px;
+  box-sizing: border-box;
+  user-select: text;
+  overflow-wrap: anywhere;
+}
+
+.node:not(.selected) .content {
+  user-select: none;
+}
+
+.node.editing .content {
+  padding: 0;
+  overflow: hidden;
+}
+
+.content > :first-child {
+  margin-top: 0;
+}
+
+.content > :last-child {
+  margin-bottom: 0;
+}
+
+.content h1,
+.content h2,
+.content h3,
+.content h4,
+.content h5,
+.content h6 {
+  margin: 0.6em 0 0.3em;
+  line-height: 1.25;
+}
+
+.content h1 { font-size: 1.6em; }
+.content h2 { font-size: 1.35em; }
+.content h3 { font-size: 1.15em; }
+
+.content p,
+.content ul,
+.content ol,
+.content pre,
+.content blockquote {
+  margin: 0.4em 0;
+}
+
+.content ul,
+.content ol {
+  padding-left: 1.4em;
+}
+
+.content li.task {
+  list-style: none;
+  margin-left: -1.2em;
+}
+
+.content code {
+  font-family: var(--vscode-editor-font-family);
+  background: var(--vscode-textCodeBlock-background, rgba(128, 128, 128, 0.15));
+  padding: 0 0.25em;
+  border-radius: 3px;
+}
+
+.content pre {
+  background: var(--vscode-textCodeBlock-background, rgba(128, 128, 128, 0.15));
+  padding: 8px;
+  border-radius: 4px;
+  overflow: auto;
+}
+
+.content pre code {
+  background: none;
+  padding: 0;
+}
+
+.content blockquote {
+  border-left: 3px solid var(--card-border);
+  padding-left: 10px;
+  color: var(--muted);
+}
+
+.content mark {
+  background: color-mix(in srgb, #e0de71 60%, transparent);
+  color: inherit;
+}
+
+.content a {
+  color: var(--vscode-textLink-foreground);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.content a.internal-link {
+  text-decoration-style: dotted;
+}
+
+.content hr {
+  border: none;
+  border-top: 1px solid var(--card-border);
+}
+
+.placeholder {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.editor {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  resize: none;
+  border: none;
+  outline: none;
+  padding: 10px 16px;
+  background: transparent;
+  color: inherit;
+  font-family: var(--vscode-editor-font-family);
+  font-size: var(--vscode-editor-font-size, 13px);
+  line-height: 1.5;
+}
+
+/* File cards: a name above the card, as in Obsidian. */
+.file-name {
+  position: absolute;
+  left: 4px;
+  bottom: calc(100% + 4px);
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.node.image .content {
+  padding: 0;
+  overflow: hidden;
+  border-radius: calc(var(--radius) - 2px);
+}
+
+.node.image img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.node.missing {
+  border-style: dashed;
+}
+
+.link-host {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.link-url {
+  color: var(--muted);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.link-open {
+  margin-top: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border: 1px solid var(--card-border);
+  border-radius: 4px;
+  background: var(--vscode-button-secondaryBackground, transparent);
+  color: var(--vscode-button-secondaryForeground, inherit);
+  cursor: pointer;
+}
+
+.link-open svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Groups: a tinted frame with its name above. */
+.node.type-group {
+  background: color-mix(in srgb, var(--node-color) 6%, transparent);
+  border-width: 2px;
+}
+
+.node.type-group.colored {
+  background: color-mix(in srgb, var(--node-color) 12%, transparent);
+}
+
+.group-label {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 6px);
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--node-color) 30%, var(--vscode-editor-background));
+  font-size: 1.3em;
+  white-space: nowrap;
+  cursor: move;
+}
+
+.group-label:empty {
+  display: none;
+}
+
+/* Connection handles: one dot in the middle of each side, shown on hover. */
+.connect {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border-radius: 50%;
+  background: var(--vscode-editor-background);
+  border: 2px solid var(--accent);
+  box-sizing: border-box;
+  opacity: 0;
+  cursor: crosshair;
+  z-index: 2;
+}
+
+.connect.side-top { left: 50%; top: 0; }
+.connect.side-right { left: 100%; top: 50%; }
+.connect.side-bottom { left: 50%; top: 100%; }
+.connect.side-left { left: 0; top: 50%; }
+
+.node:hover > .connect,
+.node.selected > .connect {
+  opacity: 1;
+}
+
+.node.editing > .connect,
+.node.editing > .resize {
+  display: none;
+}
+
+.resize {
+  position: absolute;
+  right: -6px;
+  bottom: -6px;
+  width: 14px;
+  height: 14px;
+  cursor: nwse-resize;
+  z-index: 2;
+}
+
+.node.selected > .resize::after {
+  content: "";
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid var(--accent);
+  border-bottom: 2px solid var(--accent);
+}
+
+/* ------------------------------------------------------------ edges */
+
+.edge {
+  --edge-color: var(--edge);
+}
+
+.edge .line,
+.preview {
+  fill: none;
+  stroke: var(--edge-color, var(--accent));
+  stroke-width: 2.5px;
+  stroke-linecap: round;
+}
+
+.preview {
+  stroke-dasharray: 6 6;
+}
+
+.edge .hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 16px;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+.edge .arrow {
+  fill: var(--edge-color);
+  stroke: none;
+}
+
+.edge.selected .line {
+  stroke-width: 4px;
+}
+
+.edge.selected .line,
+.edge.selected .arrow {
+  filter: drop-shadow(0 0 3px var(--accent));
+}
+
+.edge-label {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--vscode-editor-background);
+  border: 1px solid var(--edge-color, var(--edge));
+  white-space: pre;
+  cursor: pointer;
+}
+
+.edge-label.selected {
+  outline: 2px solid var(--accent);
+}
+
+.inline-input {
+  position: absolute;
+  width: 200px;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 1.1em;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  outline: none;
+  z-index: 10;
+}
+
+/* ------------------------------------------------------------ toolbars */
+
+#toolbar,
+#zoombar,
+#colorbar {
+  position: absolute;
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 8px;
+  background: var(--bar-bg);
+  border: 1px solid var(--card-border);
+  box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.25));
+  z-index: 20;
+}
+
+#toolbar {
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+#zoombar {
+  top: 12px;
+  right: 12px;
+  flex-direction: column;
+}
+
+#colorbar {
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  align-items: center;
+}
+
+#colorbar[hidden],
+#error[hidden],
+#marquee[hidden] {
+  display: none;
+}
+
+#toolbar button,
+#zoombar button,
+#colorbar button:not(.swatch) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  height: 30px;
+  padding: 0 4px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  cursor: pointer;
+}
+
+#toolbar button:hover,
+#zoombar button:hover,
+#colorbar button:not(.swatch):hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
+}
+
+#zoom-level {
+  font-size: 11px;
+}
+
+.swatch {
+  width: 20px;
+  height: 20px;
+  margin: 0 2px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  background: var(--swatch);
+  cursor: pointer;
+  box-sizing: border-box;
+  position: relative;
+}
+
+.swatch.none {
+  background: var(--card-bg);
+  border-color: var(--card-border);
+}
+
+.swatch.none::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 1px;
+  bottom: 1px;
+  border-left: 2px solid var(--muted);
+  transform: rotate(45deg);
+}
+
+.swatch.active {
+  outline: 2px solid var(--vscode-editor-foreground);
+  outline-offset: 1px;
+}
+
+.swatch.custom {
+  background: conic-gradient(#fb464c, #e9973f, #e0de71, #44cf6e, #53dfdd, #a882ff, #fb464c);
+  overflow: hidden;
+}
+
+.swatch.custom input {
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+}
+
+.sep {
+  width: 1px;
+  height: 20px;
+  margin: 0 4px;
+  background: var(--card-border);
+}
+
+#error {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: var(--vscode-editor-background);
+  z-index: 30;
+}
+
+#error button {
+  padding: 6px 14px;
+  border: none;
+  border-radius: 3px;
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  cursor: pointer;
+}

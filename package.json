@@ -1,0 +1,120 @@
+{
+  "name": "vscode-canvas",
+  "displayName": "Canvas",
+  "description": "Obsidian-Canvas-style infinite canvas for VS Code: cards, notes, links and groups on a board, saved as JSON Canvas (.canvas) files.",
+  "version": "0.1.0",
+  "publisher": "dom8509",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dom8509/vscode-canvas.git"
+  },
+  "homepage": "https://github.com/dom8509/vscode-canvas#readme",
+  "bugs": {
+    "url": "https://github.com/dom8509/vscode-canvas/issues"
+  },
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "keywords": [
+    "canvas",
+    "obsidian",
+    "json canvas",
+    "whiteboard",
+    "mind map"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "customEditors": [
+      {
+        "viewType": "canvas.editor",
+        "displayName": "Canvas",
+        "selector": [
+          {
+            "filenamePattern": "*.canvas"
+          }
+        ],
+        "priority": "default"
+      }
+    ],
+    "languages": [
+      {
+        "id": "json",
+        "extensions": [
+          ".canvas"
+        ]
+      }
+    ],
+    "commands": [
+      {
+        "command": "canvas.newCanvas",
+        "title": "New Canvas",
+        "category": "Canvas"
+      },
+      {
+        "command": "canvas.showSource",
+        "title": "Show Source",
+        "category": "Canvas",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "canvas.showCanvas",
+        "title": "Open Canvas",
+        "category": "Canvas",
+        "icon": "$(open-preview)"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "canvas.newCanvas",
+          "when": "explorerResourceIsFolder",
+          "group": "navigation@9"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "canvas.showSource",
+          "when": "activeCustomEditorId == canvas.editor",
+          "group": "navigation"
+        },
+        {
+          "command": "canvas.showCanvas",
+          "when": "resourceExtname == .canvas && !activeCustomEditorId",
+          "group": "navigation"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "canvas.showSource",
+          "when": "activeCustomEditorId == canvas.editor"
+        },
+        {
+          "command": "canvas.showCanvas",
+          "when": "resourceExtname == .canvas && !activeCustomEditorId"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm test && npm run build",
+    "package": "npm run check && vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "~1.95.0",
+    "@vscode/vsce": "^3.0.0",
+    "esbuild": "^0.28.2",
+    "typescript": "~5.9.3",
+    "vitest": "^5.0.3"
+  }
+}
