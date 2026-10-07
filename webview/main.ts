@@ -100,25 +100,29 @@ app.innerHTML = `
   <div id="props" hidden>
     <section>
       <h3>Color</h3>
-      <div class="row">
+      <div class="swatches">
         <button data-color="" title="No color" class="swatch none"></button>
         ${["1", "2", "3", "4", "5", "6"].map((c) => `<button data-color="${c}" class="swatch" style="--swatch: ${cssColor(c)}"></button>`).join("")}
         <label class="swatch custom" title="Custom color"><input type="color"></label>
       </div>
     </section>
-    <div class="edge-tools">
-      ${propRow("Line style", "lineStyle", LINE_STYLES)}
-      ${propRow("Line width", "lineWidth", LINE_WIDTHS)}
-      ${propRow("Arrow type", "pathStyle", PATH_STYLES)}
-      ${propRow("Start", "fromHead", HEAD_SHAPES)}
-      ${propRow("End", "toHead", HEAD_SHAPES)}
-    </div>
-    <section>
-      <h3>Actions</h3>
-      <div class="row">
-        <button data-action="delete" title="Delete (Del)">${icon("trash")}</button>
+    <section class="edge-tools">
+      <h3>Line</h3>
+      ${segmented("lineStyle", LINE_STYLES)}
+      ${segmented("lineWidth", LINE_WIDTHS)}
+    </section>
+    <section class="edge-tools">
+      <h3>Arrow</h3>
+      ${segmented("pathStyle", PATH_STYLES)}
+      <div class="pickers">
+        <button class="picker" data-menu="fromHead" title="Start"></button>
+        <button class="picker" data-menu="toHead" title="End"></button>
       </div>
     </section>
+    <section>
+      <button class="action danger" data-action="delete" title="Delete (Del)">${icon("trash")}<span>Delete</span></button>
+    </section>
+    <div id="head-menu" hidden></div>
   </div>
   <div id="zoombar">
     <button data-action="zoom-in" title="Zoom in">${icon("plus")}</button>
@@ -139,6 +143,7 @@ const labelsLayer = document.getElementById("labels")!;
 const marquee = document.getElementById("marquee")!;
 const errorBox = document.getElementById("error")!;
 const props = document.getElementById("props")!;
+const headMenu = document.getElementById("head-menu")!;
 const zoomLevel = document.getElementById("zoom-level")!;
 
 
@@ -163,15 +168,16 @@ function styleIcon(part: Partial<EdgeStyle>): string {
     <path class="stroke" d="${d}" stroke-dasharray="${dash}"/>${heads}</svg>`;
 }
 
-/** A titled row of buttons in the properties panel, one per value of an edge style. */
-function propRow(title: string, key: keyof EdgeStyle, values: readonly string[]): string {
+/** A row of joined buttons in the properties panel, one per value of an edge style. */
+function segmented(key: keyof EdgeStyle, values: readonly string[]): string {
   const buttons = values
-    .map((v) => {
-      const name = v[0]!.toUpperCase() + v.slice(1);
-      return `<button data-style="${key}" data-value="${v}" title="${name}">${styleIcon({ [key]: v })}</button>`;
-    })
+    .map((v) => `<button data-style="${key}" data-value="${v}" title="${title(v)}">${styleIcon({ [key]: v })}</button>`)
     .join("");
-  return `<section><h3>${title}</h3><div class="row">${buttons}</div></section>`;
+  return `<div class="segmented">${buttons}</div>`;
+}
+
+function title(value: string): string {
+  return value[0]!.toUpperCase() + value.slice(1);
 }
 
 function icon(name: string): string {
@@ -467,6 +473,32 @@ function updateColorbar(): void {
   props.querySelectorAll<HTMLElement>("[data-style]").forEach((b) => {
     b.classList.toggle("active", shared(b.dataset.style as keyof EdgeStyle) === b.dataset.value);
   });
+  for (const key of ["fromHead", "toHead"] as const) {
+    const value = shared(key);
+    const picker = props.querySelector<HTMLElement>(`[data-menu="${key}"]`)!;
+    picker.innerHTML = `${styleIcon({ [key]: value ?? "arrow" })}<span class="caret"></span>`;
+    picker.title = `${key === "fromHead" ? "Start" : "End"}: ${value ? title(value) : "mixed"}`;
+  }
+  if (!styles.length || props.hidden) closeHeadMenu();
+}
+
+/** The small menu of arrowheads beside the panel, as tldraw's dropdown pickers. */
+function toggleHeadMenu(picker: HTMLElement): void {
+  const key = picker.dataset.menu as "fromHead" | "toHead";
+  if (!headMenu.hidden && headMenu.dataset.for === key) return closeHeadMenu();
+  headMenu.dataset.for = key;
+  headMenu.innerHTML = HEAD_SHAPES.map(
+    (v) => `<button data-style="${key}" data-value="${v}" title="${title(v)}">${styleIcon({ [key]: v })}</button>`,
+  ).join("");
+  headMenu.style.top = `${picker.offsetTop}px`;
+  headMenu.hidden = false;
+  props.querySelectorAll(".picker").forEach((p) => p.classList.toggle("open", p === picker));
+  updateColorbar();
+}
+
+function closeHeadMenu(): void {
+  headMenu.hidden = true;
+  props.querySelectorAll(".picker.open").forEach((p) => p.classList.remove("open"));
 }
 
 /** Sets part of the look of the selected edges, and of new ones. */
@@ -1194,7 +1226,11 @@ app.addEventListener("click", (e) => {
   const button = (e.target as HTMLElement).closest<HTMLElement>("button");
   if (!button || viewport.contains(button)) return;
   if (button.dataset.color !== undefined) return setColor(button.dataset.color);
-  if (button.dataset.style) return setSelectedEdgeStyle({ [button.dataset.style]: button.dataset.value });
+  if (button.dataset.menu) return toggleHeadMenu(button);
+  if (button.dataset.style) {
+    if (button.parentElement === headMenu) closeHeadMenu();
+    return setSelectedEdgeStyle({ [button.dataset.style]: button.dataset.value });
+  }
   switch (button.dataset.action) {
     case "text":
       return addNode(textNodeAt(viewportCenter()), true);
@@ -1223,6 +1259,15 @@ app.addEventListener("click", (e) => {
     case "source":
       return post({ type: "showSource" });
   }
+});
+
+// The arrowhead menu closes on a click elsewhere or Escape.
+document.addEventListener("pointerdown", (e) => {
+  const t = e.target as HTMLElement;
+  if (!headMenu.hidden && !t.closest("#head-menu, .picker")) closeHeadMenu();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !headMenu.hidden) closeHeadMenu();
 });
 
 props.querySelector<HTMLInputElement>("input[type=color]")!.addEventListener("change", (e) => {

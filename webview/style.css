@@ -2,7 +2,7 @@
   --accent: var(--vscode-focusBorder, #007fd4);
   --card-bg: var(--vscode-editorWidget-background, var(--vscode-editor-background));
   --card-border: var(--vscode-widget-border, var(--vscode-editorWidget-border, rgba(128, 128, 128, 0.45)));
-  --muted: var(--vscode-descriptionForeground);
+  --muted: var(--vscode-descriptionForeground, rgba(128, 128, 128, 0.9));
   --dot: var(--vscode-editorLineNumber-foreground, rgba(128, 128, 128, 0.5));
   --edge: var(--vscode-editorLineNumber-foreground, #888);
   --bar-bg: var(--vscode-editorWidget-background);
@@ -455,8 +455,7 @@ button {
 /* ------------------------------------------------------------ toolbars */
 
 #toolbar,
-#zoombar,
-#props {
+#zoombar {
   position: absolute;
   display: flex;
   gap: 2px;
@@ -480,48 +479,13 @@ button {
   flex-direction: column;
 }
 
-#props {
-  top: 12px;
-  left: 12px;
-  flex-direction: column;
-  gap: 10px;
-  padding: 10px 12px 12px;
-  width: 244px;
-  max-height: calc(100% - 100px);
-  overflow-y: auto;
-  box-sizing: border-box;
-}
-
-#props section,
-#props .edge-tools {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-#props h3 {
-  margin: 0 0 4px;
-  font-size: 11px;
-  font-weight: normal;
-  opacity: 0.75;
-}
-
-#props .row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px;
-}
-
-#props[hidden],
 #error[hidden],
 #marquee[hidden] {
   display: none;
 }
 
 #toolbar button,
-#zoombar button,
-#props button:not(.swatch) {
+#zoombar button {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -535,58 +499,12 @@ button {
 }
 
 #toolbar button:hover,
-#zoombar button:hover,
-#props button:not(.swatch):hover {
+#zoombar button:hover {
   background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
 }
 
 #zoom-level {
   font-size: 11px;
-}
-
-.swatch {
-  width: 20px;
-  height: 20px;
-  margin: 0 2px;
-  padding: 0;
-  border-radius: 50%;
-  border: 2px solid transparent;
-  background: var(--swatch);
-  cursor: pointer;
-  box-sizing: border-box;
-  position: relative;
-}
-
-.swatch.none {
-  background: var(--card-bg);
-  border-color: var(--card-border);
-}
-
-.swatch.none::after {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: 1px;
-  bottom: 1px;
-  border-left: 2px solid var(--muted);
-  transform: rotate(45deg);
-}
-
-.swatch.active {
-  outline: 2px solid var(--vscode-editor-foreground);
-  outline-offset: 1px;
-}
-
-.swatch.custom {
-  background: conic-gradient(#fb464c, #e9973f, #e0de71, #44cf6e, #53dfdd, #a882ff, #fb464c);
-  overflow: hidden;
-}
-
-.swatch.custom input {
-  opacity: 0;
-  width: 100%;
-  height: 100%;
-  cursor: pointer;
 }
 
 .sep {
@@ -617,30 +535,239 @@ button {
   cursor: pointer;
 }
 
-/* ------------------------------------------------------------ edge styles */
+/* ------------------------------------------------------------ properties panel */
+/* After the style panels of tldraw and Excalidraw: a narrow card, groups split
+   by thin lines, small quiet titles, joined buttons, a tint for the choice. */
 
-#props .edge-tools {
+#props {
+  --hover: color-mix(in srgb, currentColor 9%, transparent);
+  --chosen: color-mix(in srgb, var(--accent) 22%, transparent);
+  --well: color-mix(in srgb, currentColor 6%, transparent);
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  width: 176px;
+  max-height: calc(100% - 96px);
+  padding: 0 10px;
+  box-sizing: border-box;
+  border-radius: 12px;
+  background: var(--bar-bg);
+  border: 1px solid color-mix(in srgb, var(--card-border) 60%, transparent);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.12),
+    0 6px 20px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.22));
+  animation: props-in 120ms ease-out;
+}
+
+@keyframes props-in {
+  from {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+}
+
+#props[hidden],
+#props:not(.has-edges) .edge-tools,
+#head-menu[hidden] {
   display: none;
 }
 
-#props.has-edges .edge-tools {
+#props section {
   display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 0;
 }
 
-#props .row button:not(.swatch) {
-  width: 32px;
-  height: 28px;
+#props section + section {
+  border-top: 1px solid color-mix(in srgb, var(--card-border) 55%, transparent);
+}
+
+#props h3 {
+  margin: 0 0 2px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+#props button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   padding: 0;
-  background: var(--vscode-input-background, rgba(128, 128, 128, 0.1));
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  transition: background-color 80ms;
 }
 
-#props .row button:not(.swatch):hover {
-  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.25));
+#props button:hover {
+  background: var(--hover);
 }
 
-#props .row button:not(.swatch).active {
-  background: var(--vscode-toolbar-activeBackground, rgba(128, 128, 128, 0.35));
-  outline: 1px solid var(--accent);
+#props button.active {
+  background: var(--chosen);
+  color: var(--vscode-textLink-foreground, var(--accent));
+}
+
+/* Colors: a 4 × 2 grid of dots. */
+
+.swatches {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 2px;
+}
+
+#props .swatch,
+.swatch.custom {
+  position: relative;
+  height: 32px;
+  border-radius: 8px;
+}
+
+.swatch::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--swatch);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15);
+}
+
+.swatch.none::before {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--muted);
+}
+
+.swatch.none::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 9px;
+  height: 14px;
+  border-left: 1.5px solid var(--muted);
+  transform: rotate(45deg);
+}
+
+.swatch.custom {
+  display: block;
+  cursor: pointer;
+}
+
+.swatch.custom:hover {
+  background: var(--hover);
+}
+
+.swatch.custom::before {
+  background: conic-gradient(#fb464c, #e9973f, #e0de71, #44cf6e, #53dfdd, #a882ff, #fb464c);
+}
+
+.swatch.custom input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+#props .swatch.active {
+  background: var(--chosen);
+}
+
+#props .swatch.active::before {
+  box-shadow:
+    0 0 0 2px var(--bar-bg),
+    0 0 0 3.5px var(--vscode-textLink-foreground, var(--accent));
+}
+
+/* Joined buttons, like a segmented control. */
+
+.segmented,
+.pickers {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--well);
+}
+
+#props .segmented button,
+#props .pickers button {
+  height: 28px;
+}
+
+/* Arrowhead pickers: the current head and a caret; the choices open beside the panel. */
+
+#props .picker {
+  gap: 2px;
+}
+
+#props .picker.open {
+  background: var(--hover);
+}
+
+.caret {
+  border: 3.5px solid transparent;
+  border-top-color: currentColor;
+  transform: translateY(2px);
+  opacity: 0.55;
+}
+
+#head-menu {
+  position: absolute;
+  left: calc(100% + 8px);
+  display: grid;
+  grid-template-columns: repeat(3, 40px);
+  gap: 2px;
+  padding: 4px;
+  border-radius: 10px;
+  background: var(--bar-bg);
+  border: 1px solid color-mix(in srgb, var(--card-border) 60%, transparent);
+  box-shadow: 0 6px 20px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.22));
+}
+
+#head-menu button {
+  height: 32px;
+}
+
+/* Delete, quiet until hovered. */
+
+#props .action {
+  justify-content: flex-start;
+  gap: 8px;
+  height: 30px;
+  padding: 0 8px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+#props .action.danger:hover {
+  color: var(--vscode-errorForeground, #f14c4c);
+  background: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) 12%, transparent);
+}
+
+#props .action svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Small pictures of edges on the buttons. */
+
+.style-icon {
+  width: 28px;
+  height: 20px;
 }
 
 .style-icon .stroke {
@@ -654,8 +781,4 @@ button {
 .style-icon .fill {
   fill: currentColor;
   stroke: none;
-}
-
-#props .row .swatch {
-  margin: 0;
 }

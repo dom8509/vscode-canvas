@@ -40,7 +40,7 @@ open format Obsidian uses, so the files work in both.
   dot, bar, diamond), as in Excalidraw. New connections take the style you
   picked last. Obsidian shows the extra styles as plain lines and arrows.
 - **Properties:** select cards or connections and a panel on the left shows
-  their properties, as in Excalidraw: one of six colors or a custom one, and
+  their properties, as in Excalidraw and tldraw: one of six colors or a custom one, and
   for connections the line and arrow styles below.
 - **Move and resize:** drag cards (they snap to the grid; hold **Alt** to
   move freely); drag the bottom-right corner to resize. Arrow keys nudge the
