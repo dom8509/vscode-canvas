@@ -30,12 +30,30 @@ button {
 
 /* ------------------------------------------------------------ viewport */
 
+/* The canvas is white paper with dark ink, as in Excalidraw, whatever the
+   VS Code theme. The toolbars around it keep the theme's colors. */
 #viewport {
+  --vscode-editor-background: #ffffff;
+  --vscode-editor-foreground: #1e1e1e;
+  --vscode-editorWidget-background: #ffffff;
+  --vscode-input-background: #ffffff;
+  --vscode-input-foreground: #1e1e1e;
+  --vscode-textLink-foreground: #1971c2;
+  --vscode-textCodeBlock-background: rgba(0, 0, 0, 0.06);
+  --vscode-button-secondaryBackground: #f1f3f5;
+  --vscode-button-secondaryForeground: #1e1e1e;
+  --card-bg: #ffffff;
+  --card-border: #1e1e1e;
+  --muted: #6b6b6b;
+  --dot: #d4d4d4;
+  --edge: #1e1e1e;
   position: absolute;
   inset: 0;
   overflow: hidden;
   outline: none;
   cursor: default;
+  background-color: #ffffff;
+  color: #1e1e1e;
   background-image: radial-gradient(circle, var(--dot) 1px, transparent 1.2px);
   touch-action: none;
   user-select: none;
@@ -98,14 +116,15 @@ button {
   position: absolute;
   box-sizing: border-box;
   border-radius: var(--radius);
-  border: 2px solid var(--card-border);
+  border: none;
   background: var(--card-bg);
   --node-color: var(--card-border);
+  --shape-stroke: var(--card-border);
 }
 
 .node.colored {
-  border-color: var(--node-color);
   background: color-mix(in srgb, var(--node-color) 10%, var(--card-bg));
+  --shape-stroke: var(--node-color);
 }
 
 .node.selected {
@@ -268,8 +287,8 @@ button {
   display: block;
 }
 
-.node.missing {
-  border-style: dashed;
+.node.missing .shape-outline .sketch {
+  stroke-dasharray: 8 6;
 }
 
 .link-host {
@@ -304,7 +323,6 @@ button {
 /* Groups: a tinted frame with its name above. */
 .node.type-group {
   background: color-mix(in srgb, var(--node-color) 6%, transparent);
-  border-width: 2px;
 }
 
 .node.type-group.colored {
@@ -405,6 +423,14 @@ button {
   stroke-width: 16px;
   pointer-events: stroke;
   cursor: pointer;
+}
+
+.drawing-icon path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .edge .fill {
@@ -808,7 +834,7 @@ button {
   border: none;
   border-radius: 0;
   background: transparent;
-  --shape-stroke: color-mix(in srgb, var(--vscode-editor-foreground, #ccc) 75%, transparent);
+  --shape-stroke: var(--vscode-editor-foreground, #1e1e1e);
 }
 
 .node.shape.colored,
@@ -825,11 +851,16 @@ button {
 
 .shape-outline path {
   stroke: var(--shape-stroke);
-  stroke-width: 2.5px;
+  stroke-width: 2px;
   stroke-linejoin: round;
   stroke-linecap: round;
 }
 
+.shape-outline .outline {
+  stroke: none;
+}
+
+.shape-outline .sketch,
 .shape-outline .marks {
   fill: none;
 }
@@ -1086,26 +1117,14 @@ button {
   font-family: var(--vscode-font-family);
 }
 
-.node.type-text.stroke-thin:not(.shape):not(.free-text) {
-  border-width: 1px;
-}
-
-.node.type-text.stroke-bold:not(.shape):not(.free-text) {
-  border-width: 4px;
-}
-
-.node.type-text.stroke-extra:not(.shape):not(.free-text) {
-  border-width: 6px;
-}
-
 .stroke-thin .shape-outline path {
-  stroke-width: 1.5px;
+  stroke-width: 1px;
 }
 
 .stroke-bold .shape-outline path {
-  stroke-width: 4.5px;
+  stroke-width: 3.5px;
 }
 
 .stroke-extra .shape-outline path {
-  stroke-width: 7px;
+  stroke-width: 5.5px;
 }

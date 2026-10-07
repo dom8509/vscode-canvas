@@ -42,6 +42,7 @@ import {
   edgePath,
   fitView,
   gridAround,
+  headPath,
   headSvg,
   rectFromPoints,
   rectsIntersect,
@@ -52,6 +53,16 @@ import {
   zoomAt,
 } from "./geometry";
 import { sectionText } from "../src/subpath";
+import {
+  DEFAULT_DRAWING_STYLE,
+  DRAWING_STYLE_NAMES,
+  type DrawingStyleName,
+  isDrawingStyle,
+  resolveDrawingStyle,
+  seedOf,
+  setDrawingStyle,
+} from "./drawingStyles";
+import { sketchPath } from "./sketch";
 import { escapeHtml, renderMarkdown, stripFrontMatter } from "./markdown";
 import { defaultShapeSize, shapeMarks, shapePath } from "./shapes";
 
@@ -88,6 +99,8 @@ const requestedFiles = new Set<string>();
 let spaceHeld = false;
 let lastPointer: Point = { x: 0, y: 0 };
 let clipboard: { nodes: CanvasNode[]; edges: CanvasEdge[] } | null = null;
+/** The drawing style from the VS Code settings. A canvas and its elements can name their own. */
+let settingsStyle: DrawingStyleName = DEFAULT_DRAWING_STYLE;
 
 const saved = vscode.getState() as { view?: View; edgeDefaults?: Partial<EdgeStyle> } | undefined;
 if (saved?.view) view = saved.view;
@@ -168,6 +181,10 @@ app.innerHTML = `
       </div>
     </section>
     <section>
+      <h3>Style</h3>
+      <div class="segmented">${DRAWING_STYLE_NAMES.map((v) => `<button data-drawing="${v}" title="${title(v)}">${drawingStyleIcon(v)}</button>`).join("")}</div>
+    </section>
+    <section>
       <button class="action danger" data-action="delete" title="Delete (Del)">${icon("trash")}<span>Delete</span></button>
     </section>
     <div id="head-menu" hidden></div>
@@ -177,6 +194,7 @@ app.innerHTML = `
     <button data-action="zoom-reset" id="zoom-level" title="Reset zoom">100%</button>
     <button data-action="zoom-out" title="Zoom out">${icon("minus")}</button>
     <button data-action="fit" title="Zoom to fit (Shift+1)">${icon("fit")}</button>
+    <button data-action="canvas-style" id="canvas-style"></button>
     <button data-action="undo" title="Undo (Ctrl+Z)">${icon("undo")}</button>
     <button data-action="redo" title="Redo (Ctrl+Shift+Z)">${icon("redo")}</button>
   </div>
@@ -236,6 +254,22 @@ function shapeIcon(shape: ShapeKind): string {
   return `<svg class="shape-icon" viewBox="0 0 24 20" width="24" height="20"><path d="${shapePath(shape, 24, 20, 2)}"/>${marks ? `<path d="${marks}"/>` : ""}</svg>`;
 }
 
+
+/** A wavy line drawn in a drawing style: clean, a little sketchy or very sketchy. */
+function drawingStyleIcon(style: DrawingStyleName): string {
+  const d = sketchPath("M 4 15 C 9 4, 15 4, 17 11 S 22 18, 26 7", 7, style);
+  return `<svg class="style-icon drawing-icon" viewBox="0 0 30 22" width="30" height="22"><path d="${d}"/></svg>`;
+}
+
+/** The drawing style of the whole canvas: its own, else the settings'. */
+function canvasStyle(): DrawingStyleName {
+  return resolveDrawingStyle(data.style, settingsStyle);
+}
+
+/** The drawing style of a node or edge: its own, else the canvas's. */
+function styleOf(element: CanvasNode | CanvasEdge): DrawingStyleName {
+  return resolveDrawingStyle(element.style, canvasStyle());
+}
 
 /** A row of joined buttons for the look of shapes and text. */
 function segmentedLook(key: keyof NodeLook, values: readonly string[]): string {
@@ -358,6 +392,7 @@ function render(): void {
   renderNodes();
   renderEdges();
   updateColorbar();
+  updateCanvasStyleButton();
 }
 
 function renderNodes(): void {
@@ -390,7 +425,6 @@ function renderNodes(): void {
         else if (look.shape !== "card") el.classList.add("shape", `fill-${look.fill}`);
         const empty = look.shape === "card" ? '<p class="placeholder">Double-click to write</p>' : "";
         body.innerHTML = renderMarkdown(node.text) || empty;
-        if (look.shape !== "card" && look.shape !== "text") drawShape(el, node);
       } else if (node.type === "file") {
         renderFile(el, body, node, missing);
       } else {
@@ -398,6 +432,7 @@ function renderNodes(): void {
       }
       nodesLayer.append(el);
     }
+    drawOutline(el, node);
 
     for (const side of SIDES) {
       const h = document.createElement("div");
@@ -426,18 +461,26 @@ function placeNode(el: HTMLElement, node: CanvasNode): void {
   el.style.height = `${node.height}px`;
   const turn = rotationOf(node);
   el.style.transform = turn ? `rotate(${turn}deg)` : "";
-  if (el.classList.contains("shape")) drawShape(el, node);
+  if (el.dataset.drawn) drawOutline(el, node);
 }
 
-/** The outline of a shaped card, redrawn when its size changes. */
-function drawShape(el: HTMLElement, node: CanvasNode): void {
-  const shape = nodeLook(node).shape as ShapeKind;
-  const key = `${shape} ${node.width} ${node.height}`;
+/** The hand-drawn outline of a card or shape, redrawn when its size changes. Free text has none. */
+function drawOutline(el: HTMLElement, node: CanvasNode): void {
+  if (el.classList.contains("free-text")) return;
+  const shaped = el.classList.contains("shape");
+  const shape = (shaped ? nodeLook(node).shape : "rectangle") as ShapeKind;
+  const { width: w, height: h } = node;
+  const style = styleOf(node);
+  const key = `${shape} ${w} ${h} ${style}`;
   if (el.dataset.drawn === key) return;
   el.dataset.drawn = key;
-  const marks = shapeMarks(shape, node.width, node.height, 2);
-  const svg = `<svg class="shape-outline" viewBox="0 0 ${node.width} ${node.height}" width="${node.width}" height="${node.height}">
-    <path class="outline" d="${shapePath(shape, node.width, node.height, 2)}"/>${marks ? `<path class="marks" d="${marks}"/>` : ""}</svg>`;
+  const seed = seedOf(node.id);
+  const outline = shapePath(shape, w, h, 2);
+  const marks = shapeMarks(shape, w, h, 2);
+  const svg = `<svg class="shape-outline" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}">
+    ${shaped ? `<path class="outline" d="${outline}"/>` : ""}<path class="sketch" d="${sketchPath(outline, seed, style)}"/>${
+      marks ? `<path class="marks" d="${sketchPath(marks, seed + 1, style)}"/>` : ""
+    }</svg>`;
   el.querySelector(".shape-outline")?.remove();
   el.insertAdjacentHTML("afterbegin", svg);
 }
@@ -586,16 +629,20 @@ function renderEdges(): void {
     hit.setAttribute("d", geo.d);
     hit.classList.add("hit");
     const path = document.createElementNS(SVG_NS, "path");
-    path.setAttribute("d", geo.d);
+    const drawing = styleOf(edge);
+    const seed = seedOf(edge.id);
+    path.setAttribute("d", sketchPath(geo.d, seed, drawing));
     path.classList.add("line");
     if (dash) path.setAttribute("stroke-dasharray", dash);
     g.append(hit, path);
 
     const size = 8 + width * 2;
-    g.insertAdjacentHTML(
-      "beforeend",
-      headSvg(style.toHead, geo.end, geo.endDir, size) + headSvg(style.fromHead, geo.start, geo.startDir, size),
-    );
+    // Heads are sketched like the line: a filled head gets a plain fill under its sketched outline.
+    for (const [k, head] of [headPath(style.toHead, geo.end, geo.endDir, size), headPath(style.fromHead, geo.start, geo.startDir, size)].entries()) {
+      if (!head) continue;
+      if (head.filled) g.insertAdjacentHTML("beforeend", `<path class="fill" d="${head.d}"/>`);
+      g.insertAdjacentHTML("beforeend", `<path class="stroke head" d="${sketchPath(head.d, seed + 1 + k, drawing)}"/>`);
+    }
     edgesLayer.append(g);
 
     if (edge.label) {
@@ -661,6 +708,11 @@ function updateColorbar(): void {
   props.querySelectorAll<HTMLElement>("[data-look]").forEach((b) => {
     const key = b.dataset.look as keyof NodeLook;
     b.classList.toggle("active", sharedLook(lookList[key], key) === b.dataset.value);
+  });
+  const drawings = new Set(items.map((i) => styleOf(i!)));
+  const sharedDrawing = drawings.size === 1 ? [...drawings][0] : undefined;
+  props.querySelectorAll<HTMLElement>("[data-drawing]").forEach((b) => {
+    b.classList.toggle("active", b.dataset.drawing === sharedDrawing);
   });
   const turns = [...selection].map(nodeById).filter((n): n is CanvasNode => !!n && canRotate(n)).map(rotationOf);
   const sharedTurn = turns.length && turns.every((t) => t === turns[0]) ? turns[0]! : null;
@@ -730,6 +782,29 @@ function setSelectedNodeLook(look: Partial<NodeLook>): void {
     fitFreeText(node);
   }
   commit();
+}
+
+/** Sets the drawing style of the selected nodes and edges. */
+function setSelectedDrawingStyle(name: DrawingStyleName): void {
+  for (const id of selection) {
+    const element = nodeById(id) ?? edgeById(id);
+    if (element) setDrawingStyle(element, name, canvasStyle());
+  }
+  commit();
+}
+
+/** Switches the canvas to the next drawing style. Its elements with a style of their own keep theirs. */
+function cycleCanvasStyle(): void {
+  const names = DRAWING_STYLE_NAMES;
+  data.style = names[(names.indexOf(canvasStyle()) + 1) % names.length];
+  commit();
+}
+
+function updateCanvasStyleButton(): void {
+  const button = document.getElementById("canvas-style")!;
+  const style = canvasStyle();
+  button.innerHTML = drawingStyleIcon(style);
+  button.title = `Drawing style of this canvas: ${title(style)} (click to change)`;
 }
 
 /** Sets part of the look of the selected edges, and of new ones. */
@@ -1608,6 +1683,7 @@ app.addEventListener("click", (e) => {
     return setSelectedNodeLook({ [button.dataset.look]: button.dataset.value });
   }
   if (button.dataset.menu) return toggleHeadMenu(button);
+  if (isDrawingStyle(button.dataset.drawing)) return setSelectedDrawingStyle(button.dataset.drawing);
   if (button.dataset.style) {
     if (button.parentElement === headMenu) closeHeadMenu();
     return setSelectedEdgeStyle({ [button.dataset.style]: button.dataset.value });
@@ -1639,6 +1715,8 @@ app.addEventListener("click", (e) => {
       return zoomBy(1 / view.zoom);
     case "fit":
       return fitToContent();
+    case "canvas-style":
+      return cycleCanvasStyle();
     case "undo":
       return post({ type: "undo" });
     case "redo":
@@ -1701,8 +1779,14 @@ window.addEventListener("message", (e: MessageEvent<HostMessage>) => {
     case "dropped":
       placeDropped(msg.items, msg);
       break;
+    case "settings":
+      settingsStyle = resolveDrawingStyle(msg.drawingStyle);
+      if (loaded) render();
+      else updateCanvasStyleButton();
+      break;
   }
 });
 
 applyView();
+updateCanvasStyleButton();
 post({ type: "ready" });
