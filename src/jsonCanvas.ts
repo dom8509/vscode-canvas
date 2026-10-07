@@ -151,3 +151,13 @@ export function isImagePath(path: string): boolean {
   const ext = path.split(".").pop()?.toLowerCase() ?? "";
   return IMAGE_EXTENSIONS.has(ext);
 }
+
+const TEXT_EXTENSIONS = new Set([
+  "md", "markdown", "txt", "json", "yaml", "yml", "toml", "csv", "js", "ts", "tsx", "jsx",
+  "py", "rs", "go", "java", "c", "cpp", "h", "cs", "rb", "php", "sh", "css", "html", "xml", "sql",
+]);
+
+export function isTextPath(path: string): boolean {
+  const ext = path.split(".").pop()?.toLowerCase() ?? "";
+  return TEXT_EXTENSIONS.has(ext);
+}

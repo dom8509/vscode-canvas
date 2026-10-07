@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { anchor, autoSides, boundsOf, containsRect, edgeCurve, fitView, sideFacing, zoomAt } from "../webview/geometry";
+import { anchor, autoSides, boundsOf, containsRect, edgeCurve, fitView, gridAround, sideFacing, zoomAt } from "../webview/geometry";
 
 const r = { x: 0, y: 0, width: 200, height: 100 };
 
@@ -48,5 +48,16 @@ describe("geometry", () => {
     expect(boundsOf([r, { x: 300, y: -50, width: 10, height: 10 }])).toEqual({ x: 0, y: -50, width: 310, height: 150 });
     expect(containsRect(r, { x: 10, y: 10, width: 50, height: 50 })).toBe(true);
     expect(containsRect(r, { x: 190, y: 10, width: 50, height: 50 })).toBe(false);
+  });
+
+  it("lays dropped cards out in a grid around the drop point", () => {
+    const card = { width: 100, height: 50 };
+    expect(gridAround({ x: 0, y: 0 }, [card], 20)).toEqual([{ x: -50, y: -25 }]);
+    expect(gridAround({ x: 0, y: 0 }, [card, card, card], 20)).toEqual([
+      { x: -110, y: -60 },
+      { x: 10, y: -60 },
+      { x: -110, y: 10 },
+    ]);
+    expect(gridAround({ x: 0, y: 0 }, [], 20)).toEqual([]);
   });
 });

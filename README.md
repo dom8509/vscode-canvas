@@ -16,8 +16,11 @@ open format Obsidian uses, so the files work in both.
   ends editing.
 - **Notes and media:** the file button in the bottom toolbar adds a file from
   the workspace. Markdown notes show their text, images show the picture.
-  You can also drag files from the Explorer onto the canvas (hold **Shift**
-  while dropping). Double-click a file card to open the file beside the canvas.
+  You can also drag notes and files onto the canvas — from the Explorer, an
+  editor tab or your file manager (hold **Shift** while dropping; VS Code
+  needs it). Several files land in a grid; a folder brings the files in it.
+  Notes from outside the workspace come in as text cards. Double-click a file
+  card to open the file beside the canvas.
 - **Web links:** the link button adds a card for a URL; *Open* opens it in
   the browser. Pasting a URL also makes a link card.
 - **Groups:** the group button puts a group around the selected cards (or

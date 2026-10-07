@@ -7,11 +7,12 @@ import {
   type Side,
   cssColor,
   isImagePath,
+  isTextPath,
   newId,
   parseCanvas,
   serializeCanvas,
 } from "../src/jsonCanvas";
-import type { FileInfo, HostMessage, WebviewMessage } from "../src/protocol";
+import type { DroppedItem, FileInfo, HostMessage, WebviewMessage } from "../src/protocol";
 import {
   type Point,
   type Rect,
@@ -23,6 +24,7 @@ import {
   containsRect,
   edgeCurve,
   fitView,
+  gridAround,
   rectFromPoints,
   rectsIntersect,
   sideFacing,
@@ -998,27 +1000,88 @@ function pointerOrCenter(): Point {
   return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom ? toWorld(x, y) : viewportCenter();
 }
 
-// ---------------------------------------------------------------- drop files from the explorer
+// ---------------------------------------------------------------- drop files and notes
 
+// VS Code hands a webview a drop only while Shift is held.
 viewport.addEventListener("dragover", (e) => {
   e.preventDefault();
   if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+  viewport.classList.add("drop-over");
+});
+
+viewport.addEventListener("dragleave", (e) => {
+  if (!viewport.contains(e.relatedTarget as Node | null)) viewport.classList.remove("drop-over");
 });
 
 viewport.addEventListener("drop", (e) => {
   e.preventDefault();
+  viewport.classList.remove("drop-over");
   const p = toWorld(e.clientX, e.clientY);
   const dt = e.dataTransfer;
   if (!dt) return;
-  const uriList = dt.getData("application/vnd.code.uri-list") || dt.getData("text/uri-list");
-  if (uriList) {
-    const uris = uriList.split(/\r?\n/).filter((u) => u && !u.startsWith("#"));
+  const uris = droppedUris(dt);
+  if (uris.length) {
     post({ type: "dropUris", uris, x: p.x, y: p.y });
+    return;
+  }
+  if (dt.files.length) {
+    void dropOsFiles([...dt.files], p);
     return;
   }
   const text = dt.getData("text/plain");
   if (text) pasteText(text, p);
 });
+
+/** The files in a drop from VS Code (Explorer, editor tabs) or another app, in the first format that has them. */
+function droppedUris(dt: DataTransfer): string[] {
+  for (const type of ["application/vnd.code.uri-list", "text/uri-list"]) {
+    const list = dt.getData(type).split(/\r?\n/).filter((u) => u.trim() && !u.startsWith("#"));
+    if (list.length) return list;
+  }
+  // Older VS Code versions give JSON arrays of URIs or file system paths.
+  for (const type of ["ResourceURLs", "CodeFiles"]) {
+    try {
+      const list = JSON.parse(dt.getData(type) || "[]") as unknown;
+      if (Array.isArray(list) && list.length) return list.filter((u): u is string => typeof u === "string");
+    } catch {
+      // Not this format.
+    }
+  }
+  return [];
+}
+
+/** Files from the operating system without a path: notes come in as text cards. */
+async function dropOsFiles(list: File[], at: Point): Promise<void> {
+  const notes = list.filter((f) => isTextPath(f.name) || f.type.startsWith("text/"));
+  const items: DroppedItem[] = await Promise.all(notes.map(async (f) => ({ kind: "text" as const, text: await f.text() })));
+  if (items.length) placeDropped(items, at);
+  const skipped = list.length - notes.length;
+  if (skipped) {
+    post({
+      type: "notify",
+      text: `${skipped} dropped ${skipped === 1 ? "file" : "files"} could not be added. Put images and other files in the workspace first, then drag them from the Explorer.`,
+    });
+  }
+}
+
+function droppedNodeAt(p: Point, item: DroppedItem): CanvasNode {
+  if (item.kind === "file") return fileNodeAt(p, item.path);
+  return { ...textNodeAt(p, item.text.trim()), width: 400, height: 400 };
+}
+
+/** Puts dropped cards in a grid around the drop point and selects them. */
+function placeDropped(items: DroppedItem[], at: Point): void {
+  const nodes = items.map((item) => droppedNodeAt(at, item));
+  const spots = gridAround(at, nodes, GRID * 2);
+  selection.clear();
+  nodes.forEach((node, i) => {
+    node.x = snap(spots[i]!.x, GRID);
+    node.y = snap(spots[i]!.y, GRID);
+    data.nodes.push(node);
+    selection.add(node.id);
+  });
+  commit();
+}
 
 // ---------------------------------------------------------------- toolbars
 
@@ -1094,16 +1157,9 @@ window.addEventListener("message", (e: MessageEvent<HostMessage>) => {
     case "picked":
       addNode(fileNodeAt(viewportCenter(), msg.path));
       break;
-    case "dropped": {
-      selection.clear();
-      msg.paths.forEach((path, i) => {
-        const node = fileNodeAt({ x: msg.x + i * (GRID * 2), y: msg.y + i * (GRID * 2) }, path);
-        data.nodes.push(node);
-        selection.add(node.id);
-      });
-      commit();
+    case "dropped":
+      placeDropped(msg.items, msg);
       break;
-    }
   }
 });
 
