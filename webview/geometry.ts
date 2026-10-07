@@ -177,3 +177,16 @@ export function zoomAt(view: View, zoom: number, at: Point): View {
 export function snap(v: number, grid: number): number {
   return Math.round(v / grid) * grid;
 }
+
+/** Where to put the top-left corners of several cards dropped at once: a near-square grid centred on the drop point. */
+export function gridAround(at: Point, sizes: { width: number; height: number }[], gap: number): Point[] {
+  if (sizes.length === 0) return [];
+  const cols = Math.ceil(Math.sqrt(sizes.length));
+  const cellW = Math.max(...sizes.map((s) => s.width)) + gap;
+  const cellH = Math.max(...sizes.map((s) => s.height)) + gap;
+  const rows = Math.ceil(sizes.length / cols);
+  const used = Math.min(cols, sizes.length);
+  const left = at.x - (used * cellW - gap) / 2;
+  const top = at.y - (rows * cellH - gap) / 2;
+  return sizes.map((_, i) => ({ x: left + (i % cols) * cellW, y: top + Math.floor(i / cols) * cellH }));
+}

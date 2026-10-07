@@ -1,11 +1,9 @@
 import * as vscode from "vscode";
-import { isImagePath } from "./jsonCanvas";
-import type { FileInfo, HostMessage, WebviewMessage } from "./protocol";
+import { isImagePath, isTextPath } from "./jsonCanvas";
+import type { DroppedItem, FileInfo, HostMessage, WebviewMessage } from "./protocol";
 
-const TEXT_EXTENSIONS = new Set([
-  "md", "markdown", "txt", "json", "yaml", "yml", "toml", "csv", "js", "ts", "tsx", "jsx",
-  "py", "rs", "go", "java", "c", "cpp", "h", "cs", "rb", "php", "sh", "css", "html", "xml", "sql",
-]);
+const MAX_DROPPED_FILES = 50;
+const EXCLUDED = "{**/node_modules/**,**/.git/**,**/*.canvas}";
 const MAX_PREVIEW_BYTES = 1_000_000;
 const PREVIEW_CHARS = 4000;
 
@@ -84,18 +82,13 @@ export class CanvasEditorProvider implements vscode.CustomTextEditorProvider {
             break;
           }
           case "dropUris": {
-            const paths = msg.uris
-              .map((u) => {
-                try {
-                  return relativeTo(root, vscode.Uri.parse(u.trim()));
-                } catch {
-                  return undefined;
-                }
-              })
-              .filter((p): p is string => !!p);
-            if (paths.length) post({ type: "dropped", paths, x: msg.x, y: msg.y });
+            const items = await this.dropItems(root, msg.uris);
+            if (items.length) post({ type: "dropped", items, x: msg.x, y: msg.y });
             break;
           }
+          case "notify":
+            void vscode.window.showInformationMessage(msg.text);
+            break;
           case "undo":
           case "redo":
             await vscode.commands.executeCommand(msg.type);
@@ -128,10 +121,52 @@ export class CanvasEditorProvider implements vscode.CustomTextEditorProvider {
       return { kind: "missing" };
     }
     if (isImagePath(path)) return { kind: "image", src: webview.asWebviewUri(uri).toString() };
-    const ext = path.split(".").pop()?.toLowerCase() ?? "";
-    if (!TEXT_EXTENSIONS.has(ext) || stat.size > MAX_PREVIEW_BYTES) return { kind: "other" };
+    if (!isTextPath(path) || stat.size > MAX_PREVIEW_BYTES) return { kind: "other" };
     const bytes = await vscode.workspace.fs.readFile(uri);
     return { kind: "text", text: new TextDecoder().decode(bytes).slice(0, PREVIEW_CHARS) };
+  }
+
+  /** What to put on the canvas for dropped files and folders. A folder brings the files in it. */
+  private async dropItems(root: vscode.Uri, uris: string[]): Promise<DroppedItem[]> {
+    const items: DroppedItem[] = [];
+    let skipped = 0;
+    for (const raw of uris) {
+      const uri = toUri(raw.trim());
+      if (!uri) continue;
+      let stat: vscode.FileStat;
+      try {
+        stat = await vscode.workspace.fs.stat(uri);
+      } catch {
+        skipped++;
+        continue;
+      }
+      const found =
+        stat.type & vscode.FileType.Directory
+          ? (await vscode.workspace.findFiles(new vscode.RelativePattern(uri, "**/*"), EXCLUDED, MAX_DROPPED_FILES))
+              .sort((a, b) => a.path.localeCompare(b.path))
+          : [uri];
+      for (const file of found) {
+        if (items.length >= MAX_DROPPED_FILES) break;
+        const path = relativeTo(root, file);
+        if (path) {
+          items.push({ kind: "file", path });
+          continue;
+        }
+        // Outside the workspace a file card could not find it again: bring a note's text instead.
+        const size = file === uri ? stat.size : (await vscode.workspace.fs.stat(file)).size;
+        if (isTextPath(file.path) && size <= MAX_PREVIEW_BYTES) {
+          items.push({ kind: "text", text: new TextDecoder().decode(await vscode.workspace.fs.readFile(file)) });
+        } else {
+          skipped++;
+        }
+      }
+    }
+    if (skipped) {
+      void vscode.window.showInformationMessage(
+        `${skipped} dropped ${skipped === 1 ? "file" : "files"} could not be added. From outside the workspace only text notes come in, as text cards.`,
+      );
+    }
+    return items;
   }
 
   private async openLink(root: vscode.Uri, href: string): Promise<void> {
@@ -169,7 +204,7 @@ export class CanvasEditorProvider implements vscode.CustomTextEditorProvider {
   private async pickFile(root: vscode.Uri): Promise<string | undefined> {
     const files = await vscode.workspace.findFiles(
       new vscode.RelativePattern(root, "**/*"),
-      "{**/node_modules/**,**/.git/**,**/*.canvas}",
+      EXCLUDED,
       5000,
     );
     const items = files
@@ -217,4 +252,15 @@ function relativeTo(root: vscode.Uri, uri: vscode.Uri): string | undefined {
   const base = root.path.endsWith("/") ? root.path : `${root.path}/`;
   if (uri.scheme !== root.scheme || !uri.path.startsWith(base)) return undefined;
   return uri.path.slice(base.length);
+}
+
+/** A dropped entry: a URI, or a plain file system path as some drag sources give. */
+function toUri(raw: string): vscode.Uri | undefined {
+  if (!raw) return undefined;
+  if (raw.startsWith("/") || /^[a-zA-Z]:[\\/]/.test(raw)) return vscode.Uri.file(raw);
+  try {
+    return vscode.Uri.parse(raw, true);
+  } catch {
+    return undefined;
+  }
 }
