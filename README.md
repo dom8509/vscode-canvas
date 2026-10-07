@@ -95,6 +95,20 @@ Press **F5** in VS Code to start an Extension Development Host with the
 `npm run package` builds a `.vsix` to install with
 *Extensions: Install from VSIX…*.
 
+## Release
+
+Push a version tag and GitHub builds the release:
+
+```sh
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+The *Release* workflow (`.github/workflows/release.yml`) runs the checks,
+packages the extension with the tag's version and attaches the `.vsix` to a
+new GitHub release with generated notes. A tag with a dash, like
+`v0.3.0-beta.1`, becomes a pre-release.
+
 ## License
 
 MIT. The handwriting font, [Caveat](https://github.com/googlefonts/caveat),
