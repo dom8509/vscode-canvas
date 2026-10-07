@@ -31,10 +31,10 @@ open format Obsidian uses, so the files work in both.
   handwriting) and the text size (S, M, L, XL). Cards and shapes also get a
   border thickness (thin, normal, bold, extra bold). Connections have four
   line widths too.
-- **Turn:** drag the round handle above a selected shape or free text to
-  turn it (hold **Shift** for 15° steps), or use the rotation buttons in the
-  properties panel (90° left, upright, 90° right). Connections follow the
-  turned sides. Obsidian shows turned cards upright.
+- **Turn:** drag the round handle above any selected card, note, link,
+  shape or free text to turn it (hold **Shift** for 15° steps). Groups stay
+  upright. Connections follow the turned sides. Obsidian shows turned cards
+  upright.
 - **Notes and media:** the file button in the bottom toolbar adds a file from
   the workspace. Markdown notes show their text, images show the picture.
   You can also drag notes and files onto the canvas — from the Explorer, an

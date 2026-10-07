@@ -600,7 +600,6 @@ button {
 #props:not(.has-shapes) .shape-tools,
 #props:not(.has-text) .text-tools,
 #props:not(.has-border) .border-tools,
-#props:not(.has-rotate) .rotate-tools,
 #shape-menu[hidden],
 #head-menu[hidden] {
   display: none;
@@ -1065,11 +1064,6 @@ button {
 
 .node.editing > .rotate {
   display: none;
-}
-
-#props .angle {
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
 }
 
 /* ------------------------------------------------------------ fonts and borders */

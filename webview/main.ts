@@ -159,14 +159,6 @@ app.innerHTML = `
       ${segmentedLook("fontFamily", FONT_FAMILIES)}
       ${segmentedLook("fontSize", FONT_SIZES)}
     </section>
-    <section class="rotate-tools">
-      <h3>Rotation</h3>
-      <div class="segmented">
-        <button data-rotate="-90" title="Turn left 90°">${icon("turn-left")}</button>
-        <button data-rotate="reset" class="angle" title="Upright">0°</button>
-        <button data-rotate="90" title="Turn right 90°">${icon("turn-right")}</button>
-      </div>
-    </section>
     <section class="edge-tools">
       <h3>Line</h3>
       ${segmented("lineStyle", LINE_STYLES)}
@@ -302,8 +294,6 @@ function icon(name: string): string {
     image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/>',
     link: '<path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/>',
     type: '<path d="M5 6V4h14v2M12 4v16M9 20h6"/>',
-    "turn-left": '<path d="M4 4v5h5"/><path d="M4.5 9A8 8 0 1 1 6 17"/>',
-    "turn-right": '<path d="M20 4v5h-5"/><path d="M19.5 9A8 8 0 1 0 18 17"/>',
     shapes: '<rect x="3" y="3" width="10" height="10" rx="2"/><circle cx="16.5" cy="16.5" r="4.5"/>',
     group: '<rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="3 3"/><rect x="7" y="8" width="6" height="5" rx="1"/>',
     trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
@@ -604,9 +594,9 @@ function facingSide(node: CanvasNode, p: Point): Side {
   return sideFacing(node, rotatePoint(p, center(node), -rotationOf(node)));
 }
 
-/** Shapes and free text can be turned, as in tldraw. Obsidian's own cards stay upright. */
+/** Every card can be turned by its handle, as in tldraw. Groups stay upright, so what they hold stays inside. */
 function canRotate(node: CanvasNode): boolean {
-  return node.type === "text" && nodeLook(node).shape !== "card";
+  return node.type !== "group";
 }
 
 function renderEdges(): void {
@@ -695,7 +685,6 @@ function updateColorbar(): void {
   props.classList.toggle("has-shapes", shapes.length > 0);
   props.classList.toggle("has-text", looks.length > 0);
   props.classList.toggle("has-border", bordered.length > 0);
-  props.classList.toggle("has-rotate", looks.some((l) => l.shape !== "card"));
   const sharedLook = <K extends keyof NodeLook>(list: NodeLook[], key: K): NodeLook[K] | undefined =>
     list.every((l) => l[key] === list[0]?.[key]) ? list[0]?.[key] : undefined;
   const lookList: Record<keyof NodeLook, NodeLook[]> = {
@@ -714,9 +703,6 @@ function updateColorbar(): void {
   props.querySelectorAll<HTMLElement>("[data-drawing]").forEach((b) => {
     b.classList.toggle("active", b.dataset.drawing === sharedDrawing);
   });
-  const turns = [...selection].map(nodeById).filter((n): n is CanvasNode => !!n && canRotate(n)).map(rotationOf);
-  const sharedTurn = turns.length && turns.every((t) => t === turns[0]) ? turns[0]! : null;
-  props.querySelector<HTMLElement>(".angle")!.textContent = sharedTurn === null ? "–" : `${Math.round(sharedTurn)}°`;
   const shapePicker = props.querySelector<HTMLElement>('[data-menu="shape"]')!;
   const sharedShape = sharedLook(shapes, "shape");
   shapePicker.innerHTML = `${sharedShape ? shapeIcon(sharedShape as ShapeKind) : "<span>Mixed</span>"}<span class="caret"></span>`;
@@ -751,15 +737,6 @@ function toggleHeadMenu(picker: HTMLElement): void {
 function closeHeadMenu(): void {
   headMenu.hidden = true;
   props.querySelectorAll(".picker.open").forEach((p) => p.classList.remove("open"));
-}
-
-/** Turns the selected shapes and free text by a step, or sets them upright. */
-function rotateSelected(step: string): void {
-  for (const id of selection) {
-    const node = nodeById(id);
-    if (node && canRotate(node)) setRotation(node, step === "reset" ? 0 : rotationOf(node) + Number(step));
-  }
-  commit();
 }
 
 /** The fill picked last. New shapes get it, as edges get their last style. */
@@ -1676,7 +1653,6 @@ app.addEventListener("click", (e) => {
   const button = (e.target as HTMLElement).closest<HTMLElement>("button");
   if (!button || viewport.contains(button)) return;
   if (button.dataset.color !== undefined) return setColor(button.dataset.color);
-  if (button.dataset.rotate) return rotateSelected(button.dataset.rotate);
   if (button.dataset.shape) return setTool({ kind: "shape", shape: button.dataset.shape as ShapeKind });
   if (button.dataset.look) {
     if (button.parentElement === headMenu) closeHeadMenu();
