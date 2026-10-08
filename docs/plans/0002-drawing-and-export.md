@@ -3,7 +3,7 @@ title: Drawing, free arrows and export
 spec: docs/specs/0002-drawing-and-export.md
 intent: docs/intents/0002-drawing-and-export.md
 spec_commit: 85a7b39
-status: draft
+status: accepted
 created: 2026-10-08
 ---
 
@@ -246,12 +246,13 @@ _Commit: "Export as PNG, pick background, paper and scale, from the zoom bar or 
   and redo; export at 1× and 2× in light and dark and compare by eye; open the
   edited canvas in Obsidian and back.
 
-## Concerns: proposed defaults
+## Concerns: decided
 
-The spec has no concerns left. Cutting the slices raised two small ones. Build
-follows the default unless dom8509 picks otherwise.
+The spec has no concerns left. Cutting the slices raised two small ones.
+dom8509 accepted the choices below on 2026-10-08. Build follows them; they are
+not deviations.
 
-| | Concern | Default | Why |
+| | Concern | Decision | Why |
 | - | ------- | ------- | --- |
 | C1 | Ctrl/Cmd+Z while a pinned line is still open | Drop the open line, then let VS Code undo as usual | Nothing is committed yet, so undo should not reach past it to older work. |
 | C2 | The pen after a stroke closes into a custom shape | The pen stays active, as after any stroke (R17) | One rule for every stroke; a double-click after Escape writes in the shape. |
