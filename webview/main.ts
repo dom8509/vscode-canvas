@@ -64,7 +64,7 @@ import {
   zoomAt,
 } from "./geometry";
 import { sectionText } from "../src/subpath";
-import { type AlignEdge, type Guide, type LayerOp, align, distribute, reorder, snapGuides } from "./arrange";
+import { type AlignEdge, type Guide, type LayerOp, align, distribute, reorder, scaleRects, snapGuides } from "./arrange";
 import {
   DEFAULT_DRAWING_STYLE,
   DRAWING_STYLE_NAMES,
@@ -135,6 +135,7 @@ app.innerHTML = `
       <svg id="edges"></svg>
       <div id="nodes"></div>
       <div id="labels"></div>
+      <div id="selection-box" hidden></div>
       <svg id="guides"></svg>
     </div>
     <div id="marquee" hidden></div>
@@ -217,6 +218,7 @@ const nodesLayer = document.getElementById("nodes")!;
 const edgesLayer = document.getElementById("edges") as unknown as SVGSVGElement;
 const labelsLayer = document.getElementById("labels")!;
 const guidesLayer = document.getElementById("guides") as unknown as SVGSVGElement;
+const selectionBox = document.getElementById("selection-box")!;
 const marquee = document.getElementById("marquee")!;
 const errorBox = document.getElementById("error")!;
 const props = document.getElementById("props")!;
@@ -371,6 +373,7 @@ function render(): void {
   emptyHint.hidden = data.nodes.length > 0;
   renderNodes();
   renderEdges();
+  updateSelectionBox();
   updateColorbar();
   updateCanvasStyleButton();
 }
@@ -482,6 +485,19 @@ const RESIZE_HANDLES: [string, Pull, Pull][] = [
   ["nw", -1, -1], ["n", 0, -1], ["ne", 1, -1], ["e", 1, 0],
   ["se", 1, 1], ["s", 0, 1], ["sw", -1, 1], ["w", -1, 0],
 ];
+
+selectionBox.innerHTML = RESIZE_HANDLES.map(([dir, dx, dy]) => `<div class="resize resize-${dir}" data-dx="${dx}" data-dy="${dy}"></div>`).join("");
+
+/** Two or more selected cards share one box with eight handles, instead of the handles of each card. */
+function updateSelectionBox(): void {
+  const nodes = selectedNodes();
+  const b = nodes.length >= 2 && editing === null ? boundsOf(nodes.map(outlineOf)) : undefined;
+  viewport.classList.toggle("multi", !!b);
+  selectionBox.hidden = !b;
+  if (!b) return;
+  selectionBox.classList.toggle("locked", nodes.some(isLocked));
+  Object.assign(selectionBox.style, { left: `${b.x}px`, top: `${b.y}px`, width: `${b.width}px`, height: `${b.height}px` });
+}
 
 /** Free text is as big as its text, as in Excalidraw. Once resized by hand it keeps its width and wraps. */
 const measurer = document.createElement("div");
@@ -703,6 +719,7 @@ function showSelection(): void {
     el.classList.toggle("selected", selection.has(el.dataset.id!));
   });
   updateColorbar();
+  updateSelectionBox();
 }
 
 function updateColorbar(): void {
@@ -1175,6 +1192,7 @@ type Drag =
   | { kind: "marquee"; start: Point; additive: Set<string> }
   | { kind: "move"; start: Point; nodes: { node: CanvasNode; x: number; y: number }[]; moved: boolean; clickedId: string; bounds: Rect; others: Rect[] }
   | { kind: "resize"; start: Point; node: CanvasNode; x: number; y: number; width: number; height: number; dx: Pull; dy: Pull; anchor: Point; scale: number; others: Rect[] }
+  | { kind: "resize-many"; from: Rect; dx: Pull; dy: Pull; items: { node: CanvasNode; rect: Rect; scale: number }[]; others: Rect[]; changed: boolean }
   | { kind: "rotate"; node: CanvasNode; center: Point; startAngle: number; rotation: number }
   | { kind: "connect"; from: CanvasNode; side: Side; preview: SVGPathElement }
   | { kind: "draw"; start: Point; shape: ShapeKind; preview: HTMLElement }
@@ -1201,6 +1219,29 @@ viewport.addEventListener("pointerdown", (e) => {
 
   if (tool.kind !== "select") {
     startPlacing(e, p);
+    return;
+  }
+
+  const boxHandle = target.closest<HTMLElement>("#selection-box > .resize");
+  if (boxHandle) {
+    // Every selected card scales, and the cards inside a selected group with it.
+    const scaled = new Map<string, CanvasNode>();
+    for (const n of selectedNodes()) {
+      scaled.set(n.id, n);
+      if (n.type === "group") for (const c of childrenOf(n)) scaled.set(c.id, c);
+    }
+    if ([...scaled.values()].some(isLocked)) return;
+    const items = [...scaled.values()].map((node) => ({ node, rect: { x: node.x, y: node.y, width: node.width, height: node.height }, scale: textScaleOf(node) }));
+    drag = {
+      kind: "resize-many",
+      from: boundsOf(selectedNodes().map(outlineOf))!,
+      dx: Number(boxHandle.dataset.dx) as Pull,
+      dy: Number(boxHandle.dataset.dy) as Pull,
+      items,
+      others: snapCandidates(new Set(scaled.keys())),
+      changed: false,
+    };
+    viewport.setPointerCapture(e.pointerId);
     return;
   }
 
@@ -1417,6 +1458,42 @@ viewport.addEventListener("pointermove", (e) => {
         if (el) placeNode(el, m.node);
       }
       redrawEdgesOf(new Set(drag.nodes.map((m) => m.node.id)));
+      updateSelectionBox();
+      break;
+    }
+    case "resize-many": {
+      const { from, dx, dy } = drag;
+      const pointer = { ...p };
+      const guides: Guide[] = [];
+      if (!e.altKey) {
+        // The moving sides land on an edge or center of a card nearby, else on the grid.
+        const tolerance = SNAP_PX / view.zoom;
+        if (dx) {
+          const s = snapGuides({ x: p.x, y: from.y, width: 0, height: from.height }, drag.others, tolerance);
+          pointer.x = s.dx !== undefined ? p.x + s.dx : snap(p.x, GRID);
+          guides.push(...snapGuides({ x: pointer.x, y: from.y, width: 0, height: from.height }, drag.others, 0.01).guides.filter((g) => g.axis === "x"));
+        }
+        if (dy) {
+          const s = snapGuides({ x: from.x, y: p.y, width: from.width, height: 0 }, drag.others, tolerance);
+          pointer.y = s.dy !== undefined ? p.y + s.dy : snap(p.y, GRID);
+          guides.push(...snapGuides({ x: from.x, y: pointer.y, width: from.width, height: 0 }, drag.others, 0.01).guides.filter((g) => g.axis === "y"));
+        }
+      }
+      showGuides(guides);
+      const { box, rects } = scaleRects(drag.items.map((i) => i.rect), from, dx, dy, pointer, e.shiftKey);
+      const sx = box.width / from.width;
+      const sy = box.height / from.height;
+      drag.items.forEach((item, i) => {
+        const r = rects[i]!;
+        Object.assign(item.node, { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) });
+        // Free text scales its text with the box; stretched one way only, it keeps its size and wraps.
+        if (isFreeText(item.node)) setTextScale(item.node, item.scale * Math.min(sx, sy));
+        const el = nodeElement(item.node.id);
+        if (el) placeNode(el, item.node);
+      });
+      drag.changed = true;
+      redrawEdgesOf(new Set(drag.items.map((i) => i.node.id)));
+      updateSelectionBox();
       break;
     }
     case "resize": {
@@ -1562,6 +1639,16 @@ function endDrag(e: PointerEvent): void {
     }
     case "rotate":
       if (rotationOf(d.node) !== d.rotation) commit();
+      break;
+    case "resize-many":
+      if (!d.changed) break;
+      for (const { node, rect } of d.items) {
+        if (!isFreeText(node)) continue;
+        // Stretched more one way than the other, it keeps its new width and wraps, as after a single resize.
+        if (Math.abs(node.width / rect.width - node.height / rect.height) > 0.01) node.autoSize = false;
+        fitFreeText(node);
+      }
+      commit();
       break;
     case "draw": {
       d.preview.remove();

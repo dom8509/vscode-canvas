@@ -2,7 +2,7 @@
 // scaling several cards at once. Pure functions on cards and rectangles.
 
 import { type CanvasNode, isLocked } from "../src/jsonCanvas";
-import { type Rect, boundsOf } from "./geometry";
+import { type Point, type Pull, type Rect, boundsOf } from "./geometry";
 
 export type LayerOp = "forward" | "backward" | "front" | "back";
 
@@ -134,4 +134,35 @@ export function snapGuides(moving: Rect, others: Rect[], tolerance: number): Sna
   const x = snapAxis(moving, others, tolerance, "x");
   const y = snapAxis(moving, others, tolerance, "y");
   return { dx: x.offset, dy: y.offset, guides: [...x.guides, ...y.guides] };
+}
+
+/** The smallest box a multi-selection can be scaled down to. */
+export const MIN_BOX = 20;
+
+/**
+ * Scales `rects`, which lie in the box `from`, by dragging the handle that pulls (`dx`, `dy`) to `pointer`.
+ * The opposite corner or side stays; a side handle leaves the other axis alone. With `keepRatio` the box
+ * keeps its ratio. The box never flips past its anchor: it stops at `MIN_BOX`, as a single resize stops.
+ */
+export function scaleRects(rects: Rect[], from: Rect, dx: Pull, dy: Pull, pointer: Point, keepRatio: boolean): { box: Rect; rects: Rect[] } {
+  const right = from.x + from.width;
+  const bottom = from.y + from.height;
+  let w = dx === 1 ? pointer.x - from.x : dx === -1 ? right - pointer.x : from.width;
+  let h = dy === 1 ? pointer.y - from.y : dy === -1 ? bottom - pointer.y : from.height;
+  w = Math.max(MIN_BOX, w);
+  h = Math.max(MIN_BOX, h);
+  if (keepRatio) {
+    const s = dx && dy ? Math.max(w / from.width, h / from.height) : dx ? w / from.width : h / from.height;
+    w = Math.max(MIN_BOX, from.width * s);
+    h = Math.max(MIN_BOX, from.height * s);
+  }
+  // A side handle that keeps the ratio grows the other axis from the middle.
+  const x = dx === -1 ? right - w : dx === 1 ? from.x : from.x + (from.width - w) / 2;
+  const y = dy === -1 ? bottom - h : dy === 1 ? from.y : from.y + (from.height - h) / 2;
+  const sx = w / from.width;
+  const sy = h / from.height;
+  return {
+    box: { x, y, width: w, height: h },
+    rects: rects.map((r) => ({ x: x + (r.x - from.x) * sx, y: y + (r.y - from.y) * sy, width: r.width * sx, height: r.height * sy })),
+  };
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CanvasNode } from "../src/jsonCanvas";
-import { align, distribute, reorder, snapGuides } from "../webview/arrange";
+import { MIN_BOX, align, distribute, reorder, scaleRects, snapGuides } from "../webview/arrange";
 
 const card = (id: string): CanvasNode => ({ id, type: "text", text: "", x: 0, y: 0, width: 10, height: 10 });
 const group = (id: string): CanvasNode => ({ id, type: "group", x: 0, y: 0, width: 10, height: 10 });
@@ -126,5 +126,39 @@ describe("snapGuides", () => {
   it("draws one guide through every card on the matched line", () => {
     const g = snapGuides(r(102, 300, 60, 20), [other, r(100, 500, 20, 30)], 6);
     expect(g.guides).toEqual([{ axis: "x", at: 100, from: 100, to: 530 }]);
+  });
+});
+
+describe("scaleRects", () => {
+  const from = r(0, 0, 100, 100);
+  const rects = [r(0, 0, 50, 50), r(50, 50, 50, 50)];
+
+  it("scales positions and sizes around the opposite corner", () => {
+    const { box, rects: out } = scaleRects(rects, from, 1, 1, { x: 200, y: 150 }, false);
+    expect(box).toEqual(r(0, 0, 200, 150));
+    expect(out).toEqual([r(0, 0, 100, 75), r(100, 75, 100, 75)]);
+    const back = scaleRects(rects, from, -1, -1, { x: 50, y: 50 }, false);
+    expect(back.box).toEqual(r(50, 50, 50, 50));
+    expect(back.rects).toEqual([r(50, 50, 25, 25), r(75, 75, 25, 25)]);
+  });
+
+  it("scales around the opposite side with a side handle", () => {
+    const { box, rects: out } = scaleRects(rects, from, 0, 1, { x: 999, y: 200 }, false);
+    expect(box).toEqual(r(0, 0, 100, 200));
+    expect(out).toEqual([r(0, 0, 50, 100), r(50, 100, 50, 100)]);
+  });
+
+  it("keeps the box's ratio when asked", () => {
+    const { box } = scaleRects(rects, from, 1, 1, { x: 300, y: 150 }, true);
+    expect(box).toEqual(r(0, 0, 300, 300));
+    const side = scaleRects(rects, from, 1, 0, { x: 200, y: 0 }, true);
+    expect(side.box).toEqual(r(0, -50, 200, 200));
+  });
+
+  it("stops at a small box instead of flipping past the anchor, as a single resize does", () => {
+    const { box } = scaleRects(rects, from, 1, 1, { x: -80, y: -80 }, false);
+    expect(box).toEqual(r(0, 0, MIN_BOX, MIN_BOX));
+    const left = scaleRects(rects, from, -1, 0, { x: 300, y: 0 }, false);
+    expect(left.box).toEqual(r(100 - MIN_BOX, 0, MIN_BOX, 100));
   });
 });

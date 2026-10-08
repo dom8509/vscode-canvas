@@ -418,6 +418,32 @@ button {
 .resize-ne { right: -7px; top: -7px; cursor: nesw-resize; }
 .resize-sw { left: -7px; bottom: -7px; cursor: nesw-resize; }
 
+/* Two or more selected cards share one box; their own resize handles go away. */
+#viewport.multi .node.selected > .resize {
+  display: none;
+}
+
+#selection-box {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px dashed var(--accent);
+  pointer-events: none;
+  z-index: 5;
+}
+
+#selection-box[hidden],
+#selection-box.locked > .resize {
+  display: none;
+}
+
+#selection-box > .resize {
+  pointer-events: auto;
+}
+
+#selection-box > .resize-nw::after,
+#selection-box > .resize-ne::after,
+#selection-box > .resize-se::after,
+#selection-box > .resize-sw::after,
 .node.selected > .resize-nw::after,
 .node.selected > .resize-ne::after,
 .node.selected > .resize-se::after,
