@@ -85,6 +85,7 @@ import { closeContextMenu, isContextMenuOpen, openContextMenu } from "./contextM
 import { menuItems } from "./contextMenuItems";
 import { resolveTheme } from "./theme";
 import { type NodeDefaults, pickNodeDefaults } from "./nodeDefaults";
+import { coalescer } from "./coalesce";
 
 declare function acquireVsCodeApi(): {
   postMessage(msg: WebviewMessage): void;
@@ -346,9 +347,18 @@ function snapshot(): string {
 
 /** Writes the canvas to the document and redraws. Undo and redo are VS Code's, on that document. */
 function commit(): void {
+  nudges.flush();
   post({ type: "edit", text: snapshot() });
   render();
 }
+
+/** The canvas after the last arrow-key nudge, written when the nudges stop: nudges in a row are one undo step. */
+let nudged = "";
+const nudges = coalescer(() => post({ type: "edit", text: nudged }), 500);
+
+// Write a waiting nudge before the canvas can be saved, closed or left.
+window.addEventListener("blur", () => nudges.flush());
+document.addEventListener("visibilitychange", () => nudges.flush());
 
 // ---------------------------------------------------------------- view
 
@@ -1837,15 +1847,10 @@ document.addEventListener("keydown", (e) => {
     zoomBy(1 / view.zoom);
   } else if (key.startsWith("arrow") && selection.size) {
     e.preventDefault();
-    const step = e.shiftKey ? GRID * 5 : GRID;
-    const dx = key === "arrowleft" ? -step : key === "arrowright" ? step : 0;
-    const dy = key === "arrowup" ? -step : key === "arrowdown" ? step : 0;
-    for (const n of selectedNodes()) {
-      if (isLocked(n)) continue;
-      n.x += dx;
-      n.y += dy;
-    }
-    commit();
+    nudge(key, e.shiftKey ? GRID * 5 : GRID);
+  } else if (e.ctrlKey || e.metaKey) {
+    // Save, undo and redo are VS Code's: write a waiting nudge first, so they see it.
+    if (key === "s" || key === "z" || key === "y") nudges.flush();
   }
 });
 
@@ -1915,6 +1920,24 @@ function runMenuAction(action: string, at: Point): void {
 function selectAll(): void {
   data.nodes.forEach((n) => isLocked(n) || selection.add(n.id));
   showSelection();
+}
+
+/** Moves the selection by an arrow key. Shown at once, written to the document when the nudges stop. */
+function nudge(key: string, step: number): void {
+  const dx = key === "arrowleft" ? -step : key === "arrowright" ? step : 0;
+  const dy = key === "arrowup" ? -step : key === "arrowdown" ? step : 0;
+  const moved = selectedNodes().filter((n) => !isLocked(n));
+  if (!moved.length) return;
+  for (const n of moved) {
+    n.x += dx;
+    n.y += dy;
+    const el = nodeElement(n.id);
+    if (el) placeNode(el, n);
+  }
+  redrawEdgesOf(new Set(moved.map((n) => n.id)));
+  updateSelectionBox();
+  nudged = snapshot();
+  nudges.schedule();
 }
 
 /** Escape closes an open menu first, then goes back to the select tool, then clears the selection. */
@@ -2139,8 +2162,10 @@ app.addEventListener("click", (e) => {
     case "canvas-style":
       return cycleCanvasStyle();
     case "undo":
+      nudges.flush();
       return post({ type: "undo" });
     case "redo":
+      nudges.flush();
       return post({ type: "redo" });
     case "help":
       return toggleShortcutPanel();
@@ -2168,6 +2193,7 @@ window.addEventListener("message", (e: MessageEvent<HostMessage>) => {
   const msg = e.data;
   switch (msg.type) {
     case "load": {
+      nudges.flush();
       try {
         data = parseCanvas(msg.text);
       } catch (err) {

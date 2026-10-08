@@ -11,8 +11,8 @@ open format Obsidian uses, so the files work in both.
 - **Tools:** the bottom toolbar holds the tools, each with its key in the
   corner of its button: select (**V**), hand (**H**: drag to pan), text
   (**T**), shapes (**R** rectangle, **O** ellipse), card (**N**) and group
-  (**G**). **Escape** goes back to the select tool, or clears the selection
-  when it is on already. No key fires while you type.
+  (**G**). **Escape** closes an open menu or panel first; otherwise it goes
+  back to the select tool, or clears the selection when that is on already. No key fires while you type.
 - **Keys:** press **?**, or the *?* button at the top right, for a list of
   every key. **Escape** or the button closes it. An empty canvas says how to
   start.
@@ -103,7 +103,7 @@ open format Obsidian uses, so the files work in both.
   handle to scale them all at once (hold **Shift** to keep the box's shape).
   Free text in the selection scales its text with it. Free text
   you make narrower keeps that width and wraps. Arrow keys nudge the
-  selection.
+  selection (**Shift**: further); nudges in a quick row undo in one step.
 - **Context menu:** right-click a card, group or connection for cut, copy,
   paste, duplicate, delete, the layer order, group selection, lock and zoom
   to selection; right-click the empty canvas for paste, select all and zoom
@@ -120,7 +120,7 @@ open format Obsidian uses, so the files work in both.
   group you move still carries the locked cards inside it. Copies are not
   locked. Obsidian ignores the lock.
 - **Select:** click; Shift-click adds; drag on the empty canvas draws a
-  selection box. Ctrl/Cmd+A selects everything.
+  selection box. Ctrl/Cmd+A selects everything that is not locked.
 - **Navigate:** scroll to pan (Shift+scroll sideways), Ctrl/Cmd+scroll or
   pinch to zoom, Space+drag or middle-drag to pan. Shift+1 zooms to fit all,
   Shift+2 to fit the selection. The bar at the top right zooms too.
