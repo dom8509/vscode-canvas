@@ -87,6 +87,10 @@ open format Obsidian uses, so the files work in both.
   move freely); drag any corner or side to resize. Free text
   you make narrower keeps that width and wraps. Arrow keys nudge the
   selection.
+- **Layer order:** Ctrl/Cmd+] brings the selected cards one step forward,
+  Ctrl/Cmd+[ sends them one step back; add **Shift** to bring them to the
+  front or send them to the back. Groups always stay behind the cards. The
+  order is the order in the file, so Obsidian shows it the same.
 - **Select:** click; Shift-click adds; drag on the empty canvas draws a
   selection box. Ctrl/Cmd+A selects everything.
 - **Navigate:** scroll to pan (Shift+scroll sideways), Ctrl/Cmd+scroll or

@@ -61,6 +61,7 @@ import {
   zoomAt,
 } from "./geometry";
 import { sectionText } from "../src/subpath";
+import { type LayerOp, reorder } from "./arrange";
 import {
   DEFAULT_DRAWING_STYLE,
   DRAWING_STYLE_NAMES,
@@ -859,6 +860,14 @@ function deleteSelection(): void {
   commit();
 }
 
+/** Moves the selected cards in the layer order. Groups move only among groups. */
+function reorderSelection(op: LayerOp): void {
+  const next = reorder(data.nodes, selection, op);
+  if (next.every((n, i) => n === data.nodes[i])) return;
+  data.nodes = next;
+  commit();
+}
+
 function setColor(color: string): void {
   if (selection.size === 0) return;
   for (const id of selection) {
@@ -1500,6 +1509,9 @@ document.addEventListener("keydown", (e) => {
   } else if (is("duplicate")) {
     e.preventDefault();
     duplicateSelection();
+  } else if (is("forward") || is("backward") || is("toFront") || is("toBack")) {
+    e.preventDefault();
+    reorderSelection(is("forward") ? "forward" : is("backward") ? "backward" : is("toFront") ? "front" : "back");
   } else if (is("escape")) {
     escape();
   } else if (is("help")) {

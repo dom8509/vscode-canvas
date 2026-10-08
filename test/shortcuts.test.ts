@@ -42,6 +42,11 @@ describe("shortcuts", () => {
   it("matches by the typed key or by the physical key, so other layouts work", () => {
     expect(matchesShortcut("fit", press("!", { shiftKey: true, code: "Digit1" }))).toBe(true);
     expect(matchesShortcut("help", press("?", { shiftKey: true, code: "Minus" }))).toBe(true);
+    // Ctrl+Shift+] types "}" on a US layout; on a German one, AltGr+9 types "]" and reads as Ctrl+Alt.
+    expect(matchesShortcut("toFront", press("}", { ctrlKey: true, shiftKey: true, code: "BracketRight" }))).toBe(true);
+    expect(matchesShortcut("forward", press("]", { ctrlKey: true, altKey: true, code: "Digit9" }))).toBe(true);
+    expect(matchesShortcut("forward", press("+", { ctrlKey: true, code: "BracketRight" }))).toBe(true);
+    expect(matchesShortcut("forward", press("}", { ctrlKey: true, shiftKey: true, code: "BracketRight" }))).toBe(false);
   });
 });
 

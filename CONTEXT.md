@@ -47,6 +47,8 @@ Obsidian shows all three as plain text cards.
 
 **Drawing style**: how lines are sketched with Rough.js: **architect** (clean), **artist** (light hand, the default) or **cartoonist** (very sketchy). Set on the extension setting, the canvas or one element; the most specific wins. The data stays the same, only the drawing changes. _Avoid_: theme, mode.
 
+**Layer order**: which card lies on top of which. It is the order of `nodes` in the file: later is on top. Groups always lie behind every card and move only among groups.
+
 **Turn**: a card's rotation, clockwise in degrees, set with the turn handle. Saved as `rotation`.
 
 **Text scale**: how much bigger free text is drawn after being scaled by a corner handle. Saved as `textScale`.
