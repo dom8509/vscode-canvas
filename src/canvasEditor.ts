@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
-import { imageFileName, isImagePath, isTextPath, uniqueFileName } from "./jsonCanvas";
+import { imageFileName, isImagePath, isTextPath, mimeOf, uniqueFileName } from "./jsonCanvas";
 import { findSection } from "./subpath";
-import type { DroppedItem, FileInfo, HostMessage, ImageData, WebviewMessage } from "./protocol";
+import type { DroppedItem, ExportFormat, FileInfo, HostMessage, ImageData, WebviewMessage } from "./protocol";
 
 const MAX_DROPPED_FILES = 50;
 const EXCLUDED = "{**/node_modules/**,**/.git/**,**/*.canvas}";
@@ -12,6 +12,18 @@ const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "bmp", "svg", "webp", "av
 export class CanvasEditorProvider implements vscode.CustomTextEditorProvider {
   static readonly viewType = "canvas.editor";
   static activeUri: vscode.Uri | undefined;
+  /** How to send a message to the webview of each open canvas, by its URI. */
+  private static readonly webviews = new Map<string, (msg: HostMessage) => void>();
+
+  /** Asks the active canvas for an export. */
+  static exportActive(format: ExportFormat): void {
+    const post = CanvasEditorProvider.activeUri && CanvasEditorProvider.webviews.get(CanvasEditorProvider.activeUri.toString());
+    if (!post) {
+      void vscode.window.showInformationMessage("Open a canvas first.");
+      return;
+    }
+    post({ type: "export", format, background: true, paper: "light", scale: 1 });
+  }
 
   constructor(private readonly context: vscode.ExtensionContext) {}
 
@@ -34,6 +46,7 @@ export class CanvasEditorProvider implements vscode.CustomTextEditorProvider {
     // The text the webview shows. A document change to other text (undo, redo, an edit as text) is sent to it.
     let shown: string | undefined;
     const post = (msg: HostMessage) => void webview.postMessage(msg);
+    CanvasEditorProvider.webviews.set(document.uri.toString(), post);
     const sendDocument = () => {
       const text = document.getText();
       if (text === shown) return;
@@ -109,6 +122,12 @@ export class CanvasEditorProvider implements vscode.CustomTextEditorProvider {
           case "notify":
             void vscode.window.showInformationMessage(msg.text);
             break;
+          case "inline":
+            post({ type: "inlined", data: await this.inline(root, msg.paths) });
+            break;
+          case "exported":
+            await this.saveExport(document.uri, msg.format, msg.base64);
+            break;
           case "undo":
           case "redo":
             await vscode.commands.executeCommand(msg.type);
@@ -122,10 +141,44 @@ export class CanvasEditorProvider implements vscode.CustomTextEditorProvider {
 
     panel.onDidDispose(() => {
       subs.forEach((s) => s.dispose());
+      CanvasEditorProvider.webviews.delete(document.uri.toString());
       if (CanvasEditorProvider.activeUri?.toString() === document.uri.toString()) {
         CanvasEditorProvider.activeUri = undefined;
       }
     });
+  }
+
+  /** Files as data URIs: workspace files by their path, the extension's own by "extension:" and theirs. Unreadable ones are left out. */
+  private async inline(root: vscode.Uri, paths: string[]): Promise<Record<string, string>> {
+    const data: Record<string, string> = {};
+    await Promise.all(
+      paths.map(async (path) => {
+        const own = path.startsWith("extension:");
+        const uri = own ? vscode.Uri.joinPath(this.context.extensionUri, ...path.slice("extension:".length).split("/")) : this.fileUri(root, path);
+        try {
+          const bytes = await vscode.workspace.fs.readFile(uri);
+          data[path] = `data:${mimeOf(path)};base64,${Buffer.from(bytes).toString("base64")}`;
+        } catch {
+          // The export shows it missing, as the canvas does.
+        }
+      }),
+    );
+    return data;
+  }
+
+  /** Saves an export through the save dialog, which starts next to the canvas with its name. */
+  private async saveExport(canvas: vscode.Uri, format: ExportFormat, base64: string): Promise<void> {
+    const name = canvas.path.split("/").pop()!.replace(/\.canvas$/i, "");
+    const target = await vscode.window.showSaveDialog({
+      defaultUri: vscode.Uri.joinPath(canvas, "..", `${name}.${format}`),
+      filters: format === "png" ? { "PNG image": ["png"] } : { "SVG image": ["svg"] },
+    });
+    if (!target) return;
+    try {
+      await vscode.workspace.fs.writeFile(target, Buffer.from(base64, "base64"));
+    } catch (err) {
+      void vscode.window.showErrorMessage(`Could not save ${target.path.split("/").pop()}: ${(err as Error).message}`);
+    }
   }
 
   private fileUri(root: vscode.Uri, path: string): vscode.Uri {

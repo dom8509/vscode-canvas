@@ -177,6 +177,13 @@ open format Obsidian uses, so the files work in both.
   connections with free ends come along, and so does a copied card's
   connection to a free end.
   Undo and redo are VS Code's own (Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z).
+- **Export:** run *Canvas: Export as SVG* from the Command Palette. The
+  picture holds the selection, or the whole canvas when nothing is selected,
+  with a margin around it, and looks like the canvas: the same fonts, sketchy
+  lines, images, notes, shapes, text and strokes. Handles, selection outlines
+  and the grid stay out. The file needs nothing outside itself (the
+  handwriting font and the images are inside it). VS Code's save dialog
+  starts next to the canvas, with its name.
 - **Source:** the *Show Source* button in the editor title opens the file as
   JSON text; *Open Canvas* goes back.
 

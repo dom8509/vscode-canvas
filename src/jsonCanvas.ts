@@ -172,6 +172,14 @@ const IMAGE_MIME_EXTENSIONS: Record<string, string> = {
   "image/avif": "avif",
 };
 
+/** The MIME type of an image or font file, by its extension. */
+export function mimeOf(path: string): string {
+  const ext = path.split(".").pop()?.toLowerCase() ?? "";
+  if (ext === "woff2" || ext === "woff") return `font/${ext}`;
+  if (ext === "jpg") return "image/jpeg";
+  return Object.keys(IMAGE_MIME_EXTENSIONS).find((m) => IMAGE_MIME_EXTENSIONS[m] === ext) ?? "application/octet-stream";
+}
+
 /** True for an image the canvas can show, by MIME type or file name. */
 export function isImageFile(mime: string, name = ""): boolean {
   return mime in IMAGE_MIME_EXTENSIONS || isImagePath(name);

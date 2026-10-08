@@ -61,6 +61,7 @@ import {
   boundsOf,
   containsRect,
   edgePath,
+  exportBounds,
   fitView,
   gridAround,
   headPath,
@@ -102,6 +103,8 @@ import { menuItems } from "./contextMenuItems";
 import { resolveTheme } from "./theme";
 import { type NodeDefaults, pickNodeDefaults } from "./nodeDefaults";
 import { coalescer } from "./coalesce";
+import { buildSvg, exportItems, inlineUrls } from "./export";
+import boardCss from "./style.css";
 
 declare function acquireVsCodeApi(): {
   postMessage(msg: WebviewMessage): void;
@@ -2692,6 +2695,66 @@ props.querySelector<HTMLInputElement>("input[type=color]")!.addEventListener("ch
 
 window.addEventListener("resize", () => applyView());
 
+// ---------------------------------------------------------------- export
+
+/** The handwriting font, which an export carries inside itself. */
+const FONT_FILES = ["caveat-400.woff2", "caveat-700.woff2"];
+
+let inlineWaiter: ((data: Record<string, string>) => void) | null = null;
+
+/** Files as data URIs from the host: the webview may not read them itself. */
+function inline(paths: string[]): Promise<Record<string, string>> {
+  return new Promise((resolve) => {
+    inlineWaiter = resolve;
+    post({ type: "inline", paths });
+  });
+}
+
+/** Where an element of the board lies, in canvas coordinates. */
+function worldRectOf(el: HTMLElement): Rect {
+  const r = el.getBoundingClientRect();
+  const topLeft = toWorld(r.left, r.top);
+  return { ...topLeft, width: r.width / view.zoom, height: r.height / view.zoom };
+}
+
+/** Draws the selection, or the whole canvas, as a picture and hands it to the host to save. */
+async function exportCanvas(options: Extract<HostMessage, { type: "export" }>): Promise<void> {
+  nudges.flush();
+  const items = exportItems(data, selection);
+  const boxes: (Rect & { turn?: number })[] = items.nodes.map((n) => ({ x: n.x, y: n.y, width: n.width, height: n.height, turn: rotationOf(n) }));
+  // A group's name sits above its box.
+  for (const n of items.nodes) {
+    const label = n.type === "group" ? nodeElement(n.id)?.querySelector<HTMLElement>(".group-label") : null;
+    if (label?.offsetWidth) boxes.push(worldRectOf(label));
+  }
+  const points: Point[] = [];
+  for (const edge of items.edges) {
+    const geo = edgeGeometry(edge);
+    if (!geo) continue;
+    points.push(geo.start, geo.end, ...bendsOf(edge));
+    // A curve can bow out past its ends, and a label past its line.
+    const line = world.querySelector<SVGGraphicsElement>(`.edge[data-id="${CSS.escape(edge.id)}"] .line`)?.getBBox();
+    if (line) boxes.push({ x: line.x, y: line.y, width: line.width, height: line.height });
+    const label = labelsLayer.querySelector<HTMLElement>(`.edge-label[data-id="${CSS.escape(edge.id)}"]`);
+    if (label) boxes.push(worldRectOf(label));
+  }
+  const b = exportBounds(boxes, points);
+  if (!b) {
+    post({ type: "notify", text: "The canvas is empty: there is nothing to export." });
+    return;
+  }
+  const bounds = { x: Math.floor(b.x), y: Math.floor(b.y), width: Math.ceil(b.width), height: Math.ceil(b.height) };
+  const images = items.nodes.flatMap((n) => (n.type === "file" && files.get(n.file)?.kind === "image" ? [n.file] : []));
+  const fonts = FONT_FILES.map((f) => `extension:webview/fonts/${f}`);
+  const inlined = await inline([...new Set(images), ...fonts]);
+  const css = inlineUrls(boardCss, Object.fromEntries(FONT_FILES.map((f, i) => [`fonts/${f}`, inlined[fonts[i]!] ?? ""])));
+  // VS Code's theme variables sit on the root element; the paper overrides the ones it sets.
+  const rootStyle = document.documentElement.style;
+  const themeVars = [...rootStyle].filter((p) => p.startsWith("--")).map((p) => `${p}: ${rootStyle.getPropertyValue(p)};`).join(" ");
+  const svg = buildSvg(world, items, bounds, options, css, inlined, themeVars);
+  post({ type: "exported", format: "svg", base64: toBase64(new TextEncoder().encode(svg)) });
+}
+
 // ---------------------------------------------------------------- messages from the host
 
 window.addEventListener("message", (e: MessageEvent<HostMessage>) => {
@@ -2730,6 +2793,13 @@ window.addEventListener("message", (e: MessageEvent<HostMessage>) => {
       break;
     case "dropped":
       placeDropped(msg.items, msg);
+      break;
+    case "export":
+      void exportCanvas(msg);
+      break;
+    case "inlined":
+      inlineWaiter?.(msg.data);
+      inlineWaiter = null;
       break;
     case "settings":
       settingsStyle = resolveDrawingStyle(msg.drawingStyle);

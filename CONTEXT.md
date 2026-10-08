@@ -81,6 +81,8 @@ Obsidian shows all three as plain text cards.
 
 **Context menu**: the menu a right-click opens, for the selection or for the empty canvas. The canvas draws its own; VS Code's webview menu stays away.
 
+**Export**: the canvas, or its selection, saved as a picture (SVG or PNG) that looks like the board and needs nothing outside itself. Code: `exportCanvas`, `buildSvg`.
+
 **Shortcut overview**: the panel that lists every key, grouped by tools, editing, view and navigation. Opened with `?` or the button in the zoom bar.
 
 **Properties panel**: the panel on the left that shows and sets the look of the selection.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { anchor, autoSides, bentPath, boundsOf, containsRect, edgeCurve, edgePath, fitView, gridAround, sideFacing, snapAngle, turnedBounds, zoomAt } from "../webview/geometry";
+import { anchor, autoSides, bentPath, boundsOf, containsRect, edgeCurve, edgePath, exportBounds, fitView, gridAround, sideFacing, snapAngle, turnedBounds, zoomAt } from "../webview/geometry";
 
 const r = { x: 0, y: 0, width: 200, height: 100 };
 
@@ -142,5 +142,27 @@ describe("bentPath", () => {
     const curved = bentPath(points, "curved").mid;
     expect(curved.x).toBeGreaterThan(95);
     expect(curved.y).toBeLessThan(5);
+  });
+});
+
+describe("exportBounds", () => {
+  it("adds a margin of 32 pixels around everything", () => {
+    expect(exportBounds([{ x: 0, y: 0, width: 100, height: 50 }], [])).toEqual({ x: -32, y: -32, width: 164, height: 114 });
+  });
+
+  it("counts a turned card by its turned outline", () => {
+    const b = exportBounds([{ x: 0, y: 0, width: 40, height: 20, turn: 90 }], [], 0)!;
+    expect(b.x).toBeCloseTo(10);
+    expect(b.y).toBeCloseTo(-10);
+    expect(b.width).toBeCloseTo(20);
+    expect(b.height).toBeCloseTo(40);
+  });
+
+  it("counts a free connection by its ends and bends", () => {
+    expect(exportBounds([], [{ x: 0, y: 0 }, { x: 50, y: -20 }, { x: 100, y: 10 }], 0)).toEqual({ x: 0, y: -20, width: 100, height: 30 });
+  });
+
+  it("is nothing for nothing", () => {
+    expect(exportBounds([], [])).toBeUndefined();
   });
 });

@@ -313,6 +313,12 @@ export function boundsOf(rects: Rect[]): Rect | undefined {
   return { x: x1, y: y1, width: x2 - x1, height: y2 - y1 };
 }
 
+/** What an export shows: the boxes of its cards, turned as drawn, and the ends and bends of its connections, with a margin around. */
+export function exportBounds(boxes: (Rect & { turn?: number })[], points: Point[], margin = 32): Rect | undefined {
+  const b = boundsOf([...boxes.map((r) => turnedBounds(r, r.turn ?? 0)), ...points.map((p) => ({ ...p, width: 0, height: 0 }))]);
+  return b && { x: b.x - margin, y: b.y - margin, width: b.width + 2 * margin, height: b.height + 2 * margin };
+}
+
 export function clampZoom(z: number): number {
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z));
 }

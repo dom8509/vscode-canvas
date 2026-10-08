@@ -72,6 +72,11 @@
         "title": "Open Canvas",
         "category": "Canvas",
         "icon": "$(open-preview)"
+      },
+      {
+        "command": "canvas.exportSvg",
+        "title": "Export as SVG",
+        "category": "Canvas"
       }
     ],
     "configuration": {
@@ -137,6 +142,10 @@
         {
           "command": "canvas.showCanvas",
           "when": "resourceExtname == .canvas && !activeCustomEditorId"
+        },
+        {
+          "command": "canvas.exportSvg",
+          "when": "activeCustomEditorId == canvas.editor"
         }
       ]
     }

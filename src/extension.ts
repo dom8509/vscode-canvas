@@ -40,6 +40,8 @@ export function activate(context: vscode.ExtensionContext): void {
       if (target) void vscode.commands.executeCommand("vscode.openWith", target, "default");
     }),
 
+    vscode.commands.registerCommand("canvas.exportSvg", () => CanvasEditorProvider.exportActive("svg")),
+
     vscode.commands.registerCommand("canvas.showCanvas", (uri?: vscode.Uri) => {
       const target = uri ?? vscode.window.activeTextEditor?.document.uri;
       if (target) void vscode.commands.executeCommand("vscode.openWith", target, CanvasEditorProvider.viewType);

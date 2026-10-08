@@ -15,6 +15,8 @@ const builds = [
     outfile: "dist/webview.js",
     platform: "browser",
     format: "iife",
+    // The stylesheet comes along as text, for an export to carry it.
+    loader: { ".css": "text" },
   },
 ];
 
