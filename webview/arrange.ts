@@ -79,3 +79,59 @@ export function distribute(rects: Rect[], axis: "horizontal" | "vertical"): Rect
   }
   return out;
 }
+
+/** A snap guide: a line at `at` on one axis ("x" is a vertical line), drawn from `from` to `to` along the other. */
+export interface Guide {
+  axis: "x" | "y";
+  at: number;
+  from: number;
+  to: number;
+}
+
+export interface Snap {
+  /** How far to move on each axis to meet a guide; undefined where no card is near. */
+  dx: number | undefined;
+  dy: number | undefined;
+  guides: Guide[];
+}
+
+const lines = (r: Rect, axis: "x" | "y"): number[] =>
+  axis === "x" ? [r.x, r.x + r.width / 2, r.x + r.width] : [r.y, r.y + r.height / 2, r.y + r.height];
+
+/** The smallest move on one axis that puts an edge or center of `moving` on an edge or center of another rect. */
+function snapAxis(moving: Rect, others: Rect[], tolerance: number, axis: "x" | "y"): { offset: number | undefined; guides: Guide[] } {
+  let offset: number | undefined;
+  for (const o of others) {
+    for (const a of lines(moving, axis)) {
+      for (const b of lines(o, axis)) {
+        const d = b - a;
+        if (Math.abs(d) <= tolerance && (offset === undefined || Math.abs(d) < Math.abs(offset))) offset = d;
+      }
+    }
+  }
+  if (offset === undefined) return { offset, guides: [] };
+  const other = axis === "x" ? "y" : "x";
+  const size = axis === "x" ? "height" : "width";
+  const placed = axis === "x" ? { ...moving, x: moving.x + offset } : { ...moving, y: moving.y + offset };
+  const guides = new Map<number, Guide>();
+  for (const o of others) {
+    for (const at of lines(placed, axis)) {
+      if (!lines(o, axis).some((b) => Math.abs(b - at) < 0.5)) continue;
+      const g = guides.get(at) ?? { axis, at, from: placed[other], to: placed[other] + placed[size] };
+      g.from = Math.min(g.from, o[other]);
+      g.to = Math.max(g.to, o[other] + o[size]);
+      guides.set(at, g);
+    }
+  }
+  return { offset, guides: [...guides.values()] };
+}
+
+/**
+ * Where `moving` snaps to the cards around it: an edge or center within `tolerance` of an edge or center
+ * of another card, the closest on each axis, with the guide lines that show the match.
+ */
+export function snapGuides(moving: Rect, others: Rect[], tolerance: number): Snap {
+  const x = snapAxis(moving, others, tolerance, "x");
+  const y = snapAxis(moving, others, tolerance, "y");
+  return { dx: x.offset, dy: y.offset, guides: [...x.guides, ...y.guides] };
+}

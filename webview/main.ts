@@ -64,7 +64,7 @@ import {
   zoomAt,
 } from "./geometry";
 import { sectionText } from "../src/subpath";
-import { type AlignEdge, type LayerOp, align, distribute, reorder } from "./arrange";
+import { type AlignEdge, type Guide, type LayerOp, align, distribute, reorder, snapGuides } from "./arrange";
 import {
   DEFAULT_DRAWING_STYLE,
   DRAWING_STYLE_NAMES,
@@ -135,6 +135,7 @@ app.innerHTML = `
       <svg id="edges"></svg>
       <div id="nodes"></div>
       <div id="labels"></div>
+      <svg id="guides"></svg>
     </div>
     <div id="marquee" hidden></div>
     <div id="empty-hint" hidden>Double-click to write · T text · R O shapes · drop files here · ? shortcuts</div>
@@ -215,6 +216,7 @@ const groupsLayer = document.getElementById("groups")!;
 const nodesLayer = document.getElementById("nodes")!;
 const edgesLayer = document.getElementById("edges") as unknown as SVGSVGElement;
 const labelsLayer = document.getElementById("labels")!;
+const guidesLayer = document.getElementById("guides") as unknown as SVGSVGElement;
 const marquee = document.getElementById("marquee")!;
 const errorBox = document.getElementById("error")!;
 const props = document.getElementById("props")!;
@@ -623,63 +625,74 @@ function canRotate(node: CanvasNode): boolean {
 function renderEdges(): void {
   edgesLayer.replaceChildren();
   labelsLayer.replaceChildren();
+  for (const edge of data.edges) drawEdge(edge);
+}
+
+/** Redraws only the connections of the given cards, so a drag on a big canvas stays smooth. */
+function redrawEdgesOf(ids: Set<string>): void {
   for (const edge of data.edges) {
-    const geo = edgeGeometry(edge);
-    if (!geo) continue;
-    const g = document.createElementNS(SVG_NS, "g");
-    g.classList.add("edge");
-    g.dataset.id = edge.id;
-    if (selection.has(edge.id)) g.classList.add("selected");
-    const color = cssColor(edge.color);
-    if (color) g.style.setProperty("--edge-color", color);
-    const style = edgeStyle(edge);
-    const { width, dash } = strokeOf(style);
-    g.style.setProperty("--edge-width", `${width}px`);
+    if (!ids.has(edge.fromNode) && !ids.has(edge.toNode)) continue;
+    world.querySelectorAll(`#edges [data-id="${CSS.escape(edge.id)}"], #labels [data-id="${CSS.escape(edge.id)}"]`).forEach((el) => el.remove());
+    drawEdge(edge);
+  }
+}
 
-    const hit = document.createElementNS(SVG_NS, "path");
-    hit.setAttribute("d", geo.d);
-    hit.classList.add("hit");
-    const path = document.createElementNS(SVG_NS, "path");
-    const drawing = styleOf(edge);
-    const seed = seedOf(edge.id);
-    path.setAttribute("d", sketchPath(geo.d, seed, drawing));
-    path.classList.add("line");
-    if (dash) path.setAttribute("stroke-dasharray", dash);
-    g.append(hit, path);
+function drawEdge(edge: CanvasEdge): void {
+  const geo = edgeGeometry(edge);
+  if (!geo) return;
+  const g = document.createElementNS(SVG_NS, "g");
+  g.classList.add("edge");
+  g.dataset.id = edge.id;
+  if (selection.has(edge.id)) g.classList.add("selected");
+  const color = cssColor(edge.color);
+  if (color) g.style.setProperty("--edge-color", color);
+  const style = edgeStyle(edge);
+  const { width, dash } = strokeOf(style);
+  g.style.setProperty("--edge-width", `${width}px`);
 
-    const size = 8 + width * 2;
-    // Heads are sketched like the line: a filled head gets a plain fill under its sketched outline.
-    for (const [k, head] of [headPath(style.toHead, geo.end, geo.endDir, size), headPath(style.fromHead, geo.start, geo.startDir, size)].entries()) {
-      if (!head) continue;
-      if (head.filled) g.insertAdjacentHTML("beforeend", `<path class="fill" d="${head.d}"/>`);
-      g.insertAdjacentHTML("beforeend", `<path class="stroke head" d="${sketchPath(head.d, seed + 1 + k, drawing)}"/>`);
-    }
-    edgesLayer.append(g);
+  const hit = document.createElementNS(SVG_NS, "path");
+  hit.setAttribute("d", geo.d);
+  hit.classList.add("hit");
+  const path = document.createElementNS(SVG_NS, "path");
+  const drawing = styleOf(edge);
+  const seed = seedOf(edge.id);
+  path.setAttribute("d", sketchPath(geo.d, seed, drawing));
+  path.classList.add("line");
+  if (dash) path.setAttribute("stroke-dasharray", dash);
+  g.append(hit, path);
 
-    if (isLocked(edge)) {
-      const badge = document.createElement("div");
-      badge.className = "lock-badge edge-lock";
-      badge.dataset.id = edge.id;
-      badge.classList.toggle("selected", selection.has(edge.id));
-      badge.innerHTML = icon("lock");
-      badge.style.left = `${geo.mid.x}px`;
-      badge.style.top = `${geo.mid.y + (edge.label ? 22 : 0)}px`;
-      g.addEventListener("pointerenter", () => badge.classList.add("hover"));
-      g.addEventListener("pointerleave", () => badge.classList.remove("hover"));
-      labelsLayer.append(badge);
-    }
+  const size = 8 + width * 2;
+  // Heads are sketched like the line: a filled head gets a plain fill under its sketched outline.
+  for (const [k, head] of [headPath(style.toHead, geo.end, geo.endDir, size), headPath(style.fromHead, geo.start, geo.startDir, size)].entries()) {
+    if (!head) continue;
+    if (head.filled) g.insertAdjacentHTML("beforeend", `<path class="fill" d="${head.d}"/>`);
+    g.insertAdjacentHTML("beforeend", `<path class="stroke head" d="${sketchPath(head.d, seed + 1 + k, drawing)}"/>`);
+  }
+  edgesLayer.append(g);
 
-    if (edge.label) {
-      const label = document.createElement("div");
-      label.className = "edge-label";
-      label.dataset.id = edge.id;
-      label.classList.toggle("selected", selection.has(edge.id));
-      if (color) label.style.setProperty("--edge-color", color);
-      label.textContent = edge.label;
-      label.style.left = `${geo.mid.x}px`;
-      label.style.top = `${geo.mid.y}px`;
-      labelsLayer.append(label);
-    }
+  if (isLocked(edge)) {
+    const badge = document.createElement("div");
+    badge.className = "lock-badge edge-lock";
+    badge.dataset.id = edge.id;
+    badge.classList.toggle("selected", selection.has(edge.id));
+    badge.innerHTML = icon("lock");
+    badge.style.left = `${geo.mid.x}px`;
+    badge.style.top = `${geo.mid.y + (edge.label ? 22 : 0)}px`;
+    g.addEventListener("pointerenter", () => badge.classList.add("hover"));
+    g.addEventListener("pointerleave", () => badge.classList.remove("hover"));
+    labelsLayer.append(badge);
+  }
+
+  if (edge.label) {
+    const label = document.createElement("div");
+    label.className = "edge-label";
+    label.dataset.id = edge.id;
+    label.classList.toggle("selected", selection.has(edge.id));
+    if (color) label.style.setProperty("--edge-color", color);
+    label.textContent = edge.label;
+    label.style.left = `${geo.mid.x}px`;
+    label.style.top = `${geo.mid.y}px`;
+    labelsLayer.append(label);
   }
 }
 
@@ -1160,8 +1173,8 @@ function editEdgeLabel(id: string): void {
 type Drag =
   | { kind: "pan"; start: Point; view: View }
   | { kind: "marquee"; start: Point; additive: Set<string> }
-  | { kind: "move"; start: Point; nodes: { node: CanvasNode; x: number; y: number }[]; moved: boolean; clickedId: string }
-  | { kind: "resize"; start: Point; node: CanvasNode; x: number; y: number; width: number; height: number; dx: Pull; dy: Pull; anchor: Point; scale: number }
+  | { kind: "move"; start: Point; nodes: { node: CanvasNode; x: number; y: number }[]; moved: boolean; clickedId: string; bounds: Rect; others: Rect[] }
+  | { kind: "resize"; start: Point; node: CanvasNode; x: number; y: number; width: number; height: number; dx: Pull; dy: Pull; anchor: Point; scale: number; others: Rect[] }
   | { kind: "rotate"; node: CanvasNode; center: Point; startAngle: number; rotation: number }
   | { kind: "connect"; from: CanvasNode; side: Side; preview: SVGPathElement }
   | { kind: "draw"; start: Point; shape: ShapeKind; preview: HTMLElement }
@@ -1221,7 +1234,8 @@ viewport.addEventListener("pointerdown", (e) => {
     const dy = Number(target.dataset.dy) as Pull;
     const anchor = resizeAnchor(node, dx, dy, rotationOf(node));
     const scale = textScaleOf(node);
-    drag = { kind: "resize", start: p, node, x: node.x, y: node.y, width: node.width, height: node.height, dx, dy, anchor, scale };
+    const others = snapCandidates(new Set([node.id]));
+    drag = { kind: "resize", start: p, node, x: node.x, y: node.y, width: node.width, height: node.height, dx, dy, anchor, scale, others };
     viewport.setPointerCapture(e.pointerId);
     return;
   }
@@ -1253,12 +1267,15 @@ viewport.addEventListener("pointerdown", (e) => {
       moving.set(n.id, n);
       if (n.type === "group") for (const c of childrenOf(n)) moving.set(c.id, c);
     }
+    const movingNodes = [...moving.values()];
     drag = {
       kind: "move",
       start: p,
-      nodes: [...moving.values()].map((n) => ({ node: n, x: n.x, y: n.y })),
+      nodes: movingNodes.map((n) => ({ node: n, x: n.x, y: n.y })),
       moved: false,
       clickedId: node.id,
+      bounds: boundsOf(movingNodes.map(outlineOf)) ?? { ...p, width: 0, height: 0 },
+      others: snapCandidates(new Set(moving.keys())),
     };
     viewport.setPointerCapture(e.pointerId);
     showSelection();
@@ -1317,6 +1334,33 @@ function insideGroupBody(group: CanvasNode, p: Point): boolean {
   return p.x > group.x + edge && p.x < group.x + group.width - edge && p.y > group.y + edge && p.y < group.y + group.height - edge;
 }
 
+// ---------------------------------------------------------------- snap guides
+
+/** How near, in screen pixels, an edge or center must come to another card's to snap to it. */
+const SNAP_PX = 6;
+
+function shifted(r: Rect, dx: number, dy: number): Rect {
+  return { ...r, x: r.x + dx, y: r.y + dy };
+}
+
+/** The outlines a drag can snap to: the cards in view, or within one viewport of it, except the ones that move. */
+function snapCandidates(moving: Set<string>): Rect[] {
+  const r = viewport.getBoundingClientRect();
+  const area = rectFromPoints(toWorld(r.left - r.width, r.top - r.height), toWorld(r.right + r.width, r.bottom + r.height));
+  return data.nodes.filter((n) => !moving.has(n.id)).map(outlineOf).filter((b) => rectsIntersect(b, area));
+}
+
+function showGuides(guides: Guide[]): void {
+  guidesLayer.innerHTML = guides
+    .map((g) =>
+      g.axis === "x"
+        ? `<line x1="${g.at}" y1="${g.from}" x2="${g.at}" y2="${g.to}"/>`
+        : `<line x1="${g.from}" y1="${g.at}" x2="${g.to}" y2="${g.at}"/>`,
+    )
+    .join("");
+  guidesLayer.style.setProperty("--guide-width", `${1 / view.zoom}px`);
+}
+
 function startMarquee(e: PointerEvent, p: Point): void {
   if (!e.shiftKey) selection.clear();
   drag = { kind: "marquee", start: p, additive: new Set(selection) };
@@ -1356,11 +1400,15 @@ viewport.addEventListener("pointermove", (e) => {
       if (!drag.nodes.length || (!drag.moved && Math.hypot(dx, dy) * view.zoom < 3)) return;
       drag.moved = true;
       if (!e.altKey) {
-        // Snap the clicked card to the grid; the others keep their offsets to it.
+        // Snap to the cards nearby; on an axis with none, snap the clicked card to the grid and keep the others' offsets to it.
+        const s = snapGuides(shifted(drag.bounds, dx, dy), drag.others, SNAP_PX / view.zoom);
         const clicked = drag.clickedId;
         const lead = drag.nodes.find((m) => m.node.id === clicked) ?? drag.nodes[0]!;
-        dx = snap(lead.x + dx, GRID) - lead.x;
-        dy = snap(lead.y + dy, GRID) - lead.y;
+        dx = s.dx !== undefined ? dx + s.dx : snap(lead.x + dx, GRID) - lead.x;
+        dy = s.dy !== undefined ? dy + s.dy : snap(lead.y + dy, GRID) - lead.y;
+        showGuides(snapGuides(shifted(drag.bounds, dx, dy), drag.others, 0.01).guides);
+      } else {
+        showGuides([]);
       }
       for (const m of drag.nodes) {
         m.node.x = m.x + dx;
@@ -1368,7 +1416,7 @@ viewport.addEventListener("pointermove", (e) => {
         const el = nodeElement(m.node.id);
         if (el) placeNode(el, m.node);
       }
-      renderEdges();
+      redrawEdgesOf(new Set(drag.nodes.map((m) => m.node.id)));
       break;
     }
     case "resize": {
@@ -1390,16 +1438,29 @@ viewport.addEventListener("pointermove", (e) => {
         Object.assign(n, { width: w, height: h, x: corner.x, y: corner.y });
         const el = nodeElement(n.id);
         if (el) placeNode(el, n);
-        renderEdges();
+        redrawEdgesOf(new Set([n.id]));
         break;
       }
+      const guides: Guide[] = [];
       if (!turn && !e.altKey) {
-        // The moving side lands on the grid.
-        if (dx === 1) w = snap(drag.x + w, GRID) - drag.x;
-        if (dx === -1) w = drag.x + drag.width - snap(drag.x + drag.width - w, GRID);
-        if (dy === 1) h = snap(drag.y + h, GRID) - drag.y;
-        if (dy === -1) h = drag.y + drag.height - snap(drag.y + drag.height - h, GRID);
+        // The moving side lands on an edge or center of a card nearby, else on the grid.
+        const tolerance = SNAP_PX / view.zoom;
+        if (dx) {
+          const side = dx === 1 ? drag.x + w : drag.x + drag.width - w;
+          const s = snapGuides({ x: side, y: drag.y, width: 0, height: drag.height }, drag.others, tolerance);
+          const to = s.dx !== undefined ? side + s.dx : snap(side, GRID);
+          w = dx === 1 ? to - drag.x : drag.x + drag.width - to;
+          guides.push(...snapGuides({ x: to, y: drag.y, width: 0, height: drag.height }, drag.others, 0.01).guides.filter((g) => g.axis === "x"));
+        }
+        if (dy) {
+          const side = dy === 1 ? drag.y + h : drag.y + drag.height - h;
+          const s = snapGuides({ x: drag.x, y: side, width: drag.width, height: 0 }, drag.others, tolerance);
+          const to = s.dy !== undefined ? side + s.dy : snap(side, GRID);
+          h = dy === 1 ? to - drag.y : drag.y + drag.height - to;
+          guides.push(...snapGuides({ x: drag.x, y: to, width: drag.width, height: 0 }, drag.others, 0.01).guides.filter((g) => g.axis === "y"));
+        }
       }
+      showGuides(guides);
       w = Math.max(freeText ? 30 : 60, w);
       // Free text is never cut off: it is at least as tall as its wrapped text.
       const minH = isFreeText(n) ? measureText(n, renderMarkdown(n.text), w).height : 40;
@@ -1408,7 +1469,7 @@ viewport.addEventListener("pointermove", (e) => {
       Object.assign(n, { width: w, height: h, x: corner.x, y: corner.y });
       const el = nodeElement(n.id);
       if (el) placeNode(el, n);
-      renderEdges();
+      redrawEdgesOf(new Set([n.id]));
       break;
     }
     case "rotate": {
@@ -1417,7 +1478,7 @@ viewport.addEventListener("pointermove", (e) => {
       setRotation(drag.node, turn);
       const el = nodeElement(drag.node.id);
       if (el) placeNode(el, drag.node);
-      renderEdges();
+      redrawEdgesOf(new Set([drag.node.id]));
       break;
     }
     case "draw": {
@@ -1461,6 +1522,7 @@ function endDrag(e: PointerEvent): void {
   if (!drag) return;
   const d = drag;
   drag = null;
+  showGuides([]);
   const p = toWorld(e.clientX, e.clientY);
   switch (d.kind) {
     case "pan":

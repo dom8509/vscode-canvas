@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CanvasNode } from "../src/jsonCanvas";
-import { align, distribute, reorder } from "../webview/arrange";
+import { align, distribute, reorder, snapGuides } from "../webview/arrange";
 
 const card = (id: string): CanvasNode => ({ id, type: "text", text: "", x: 0, y: 0, width: 10, height: 10 });
 const group = (id: string): CanvasNode => ({ id, type: "group", x: 0, y: 0, width: 10, height: 10 });
@@ -89,5 +89,42 @@ describe("distribute", () => {
     expect(out.map((x) => x.y)).toEqual([0, 25, 50]);
     const wide = distribute([r(0, 0, 60, 10), r(10, 0, 60, 10), r(50, 0, 60, 10)], "horizontal");
     expect(wide.map((x) => x.x)).toEqual([0, 25, 50]);
+  });
+});
+
+describe("snapGuides", () => {
+  const other = r(100, 100, 50, 50);
+
+  it("snaps an edge within the tolerance and shows a guide there", () => {
+    const g = snapGuides(r(103, 300, 60, 20), [other], 6);
+    expect(g.dx).toBe(-3);
+    expect(g.guides).toContainEqual({ axis: "x", at: 100, from: 100, to: 320 });
+  });
+
+  it("does not snap outside the tolerance", () => {
+    const g = snapGuides(r(107, 300, 60, 20), [other], 6);
+    expect(g.dx).toBeUndefined();
+    expect(g.guides.filter((l) => l.axis === "x")).toEqual([]);
+  });
+
+  it("snaps centers to centers", () => {
+    const g = snapGuides(r(300, 112, 20, 20), [other], 6);
+    expect(g.dy).toBe(3);
+  });
+
+  it("takes the closest match", () => {
+    const g = snapGuides(r(143, 300, 10, 10), [other, r(154, 0, 0, 10)], 6);
+    expect(g.dx).toBe(1);
+  });
+
+  it("gives no offset on an axis with no match", () => {
+    const g = snapGuides(r(103, 400, 60, 20), [other], 6);
+    expect(g.dx).toBe(-3);
+    expect(g.dy).toBeUndefined();
+  });
+
+  it("draws one guide through every card on the matched line", () => {
+    const g = snapGuides(r(102, 300, 60, 20), [other, r(100, 500, 20, 30)], 6);
+    expect(g.guides).toEqual([{ axis: "x", at: 100, from: 100, to: 530 }]);
   });
 });

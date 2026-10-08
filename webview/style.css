@@ -103,6 +103,21 @@ button {
   pointer-events: none;
 }
 
+#guides {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  overflow: visible;
+  pointer-events: none;
+}
+
+#guides line {
+  stroke: #e03131;
+  stroke-width: var(--guide-width, 1px);
+}
+
 #marquee {
   position: absolute;
   border: 1px solid var(--accent);

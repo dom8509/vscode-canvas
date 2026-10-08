@@ -88,8 +88,10 @@ open format Obsidian uses, so the files work in both.
   tops, middles or bottoms. With three or more, two more buttons space them
   out evenly across or down: the outer two stay put. A turned card counts by
   its turned outline. Locked cards stay where they are.
-- **Move and resize:** drag cards (they snap to the grid; hold **Alt** to
-  move freely); drag any corner or side to resize. Free text
+- **Move and resize:** drag cards; drag any corner or side to resize. While
+  you drag, an edge or center of a card snaps to the edges and centers of
+  the cards nearby, and a thin red guide shows the match; where nothing is
+  near, cards snap to the grid. Hold **Alt** to move freely. Free text
   you make narrower keeps that width and wraps. Arrow keys nudge the
   selection.
 - **Context menu:** right-click a card, group or connection for cut, copy,
