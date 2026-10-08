@@ -60,4 +60,10 @@ describe("menuItems", () => {
     }
     expect(item(entries, "delete").enabled).toBe(true);
   });
+
+  it("copies a selection of free connections when it holds something to copy", () => {
+    const entries = menuItems([edge("e")], true, true);
+    for (const action of ["cut", "copy", "duplicate"]) expect(item(entries, action).enabled, action).toBe(true);
+    expect(item(menuItems([edge("e", { locked: true })], true, true), "cut").enabled).toBe(false);
+  });
 });

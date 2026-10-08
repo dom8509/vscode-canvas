@@ -17,8 +17,11 @@ export type MenuEntry = MenuItem | "-";
 
 const entry = (action: string, label: string, enabled: boolean): MenuItem => ({ action, label, keys: shortcutText(action), enabled });
 
-/** The menu for the selected elements, or for the empty canvas when nothing is selected. */
-export function menuItems(selected: (CanvasNode | CanvasEdge)[], canPaste: boolean): MenuEntry[] {
+/**
+ * The menu for the selected elements, or for the empty canvas when nothing is selected. `canCopy`: the
+ * selection holds something to copy, as cards do and connections with free ends.
+ */
+export function menuItems(selected: (CanvasNode | CanvasEdge)[], canPaste: boolean, canCopy?: boolean): MenuEntry[] {
   if (selected.length === 0) {
     return [entry("paste", "Paste", canPaste), entry("selectAll", "Select all", true), entry("fit", "Zoom to fit", true)];
   }
@@ -26,11 +29,12 @@ export function menuItems(selected: (CanvasNode | CanvasEdge)[], canPaste: boole
   const free = selected.filter((s) => !isLocked(s));
   const freeCards = cards.filter((c) => !isLocked(c));
   const allLocked = free.length === 0;
+  const copyable = canCopy ?? cards.length > 0;
   return [
-    entry("cut", "Cut", freeCards.length > 0),
-    entry("copy", "Copy", cards.length > 0),
+    entry("cut", "Cut", copyable && free.length > 0),
+    entry("copy", "Copy", copyable),
     entry("paste", "Paste", canPaste),
-    entry("duplicate", "Duplicate", cards.length > 0),
+    entry("duplicate", "Duplicate", copyable),
     entry("delete", "Delete", free.length > 0),
     "-",
     entry("toFront", "Bring to front", freeCards.length > 0),

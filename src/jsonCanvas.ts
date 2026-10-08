@@ -399,6 +399,13 @@ export function prunePoints(data: CanvasData): void {
   data.nodes = data.nodes.filter((n) => !isPoint(n) || named.has(n.id));
 }
 
+/** The points at the ends of the given connections, for a move (`skipLocked`: a locked one stays put) or a copy. */
+export function pointsOfEdges(data: CanvasData, edgeIds: Iterable<string>, skipLocked = false): CanvasNode[] {
+  const ids = new Set(edgeIds);
+  const ends = new Set(data.edges.filter((e) => ids.has(e.id) && !(skipLocked && isLocked(e))).flatMap((e) => [e.fromNode, e.toNode]));
+  return data.nodes.filter((n) => isPoint(n) && ends.has(n.id));
+}
+
 /** Where a dragged end lands: a card at one of its sides, or a free end at a spot. */
 export type EndTarget = { node: string; side: Side } | { at: { x: number; y: number } };
 

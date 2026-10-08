@@ -10,6 +10,7 @@ import {
   nodeLook,
   parseCanvas,
   pointNodeAt,
+  pointsOfEdges,
   prunePoints,
   rebind,
   serializeCanvas,
@@ -259,5 +260,33 @@ describe("bends", () => {
       edges: [{ id: "e", fromNode: "a", toNode: "b", bends: [50, 80] }],
     });
     expect(serializeCanvas(parseCanvas(text))).toBe(text);
+  });
+});
+
+describe("pointsOfEdges", () => {
+  const card = { id: "c", type: "text" as const, text: "", x: 0, y: 0, width: 100, height: 50 };
+  const p1 = pointNodeAt({ x: 200, y: 0 });
+  const p2 = pointNodeAt({ x: 300, y: 0 });
+  const p3 = pointNodeAt({ x: 400, y: 0 });
+  const data: CanvasData = {
+    nodes: [card, p1, p2, p3],
+    edges: [
+      { id: "free", fromNode: p1.id, toNode: p2.id },
+      { id: "fromCard", fromNode: "c", toNode: p3.id },
+      { id: "locked", fromNode: p2.id, toNode: p3.id, locked: true },
+    ],
+  };
+
+  it("gives the points of the given connections only", () => {
+    expect(pointsOfEdges(data, ["free"]).map((n) => n.id)).toEqual([p1.id, p2.id]);
+  });
+
+  it("brings the point of a card's connection, not the card", () => {
+    expect(pointsOfEdges(data, ["fromCard"]).map((n) => n.id)).toEqual([p3.id]);
+  });
+
+  it("skips locked connections for a move, and keeps them for a copy", () => {
+    expect(pointsOfEdges(data, ["locked"], true)).toEqual([]);
+    expect(pointsOfEdges(data, ["locked"]).map((n) => n.id)).toEqual([p2.id, p3.id]);
   });
 });

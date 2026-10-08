@@ -26,6 +26,7 @@ import {
   isLocked,
   isPoint,
   pointNodeAt,
+  pointsOfEdges,
   prunePoints,
   rebind,
   setBends,
@@ -1096,13 +1097,28 @@ function setColor(color: string): void {
 
 // ---------------------------------------------------------------- copy and paste
 
-function copySelection(): string | undefined {
-  const nodes = selectedNodes();
+/**
+ * What a copy of the selection holds: the selected cards and the connections between them, the
+ * points of selected connections, and a copied card's connections to a point, with the point.
+ */
+function selectionFragment(): { nodes: CanvasNode[]; edges: CanvasEdge[] } | undefined {
+  const cards = new Set(selectedNodes().map((n) => n.id));
+  const toPoint = (id: string) => isPoint(nodeById(id) ?? ({} as CanvasNode));
+  const carried = data.edges.filter(
+    (e) => selection.has(e.id) || (cards.has(e.fromNode) && toPoint(e.toNode)) || (cards.has(e.toNode) && toPoint(e.fromNode)),
+  );
+  const ids = new Set([...cards, ...pointsOfEdges(data, carried.map((e) => e.id)).map((n) => n.id)]);
+  const nodes = data.nodes.filter((n) => ids.has(n.id));
   if (nodes.length === 0) return undefined;
-  const ids = new Set(nodes.map((n) => n.id));
   const edges = data.edges.filter((e) => ids.has(e.fromNode) && ids.has(e.toNode));
-  clipboard = structuredClone({ nodes, edges });
-  return serializeCanvas({ nodes, edges });
+  return { nodes, edges };
+}
+
+function copySelection(): string | undefined {
+  const fragment = selectionFragment();
+  if (!fragment) return undefined;
+  clipboard = structuredClone(fragment);
+  return serializeCanvas(fragment);
 }
 
 function paste(fragment: { nodes: CanvasNode[]; edges: CanvasEdge[] }, at: Point): void {
@@ -1112,13 +1128,16 @@ function paste(fragment: { nodes: CanvasNode[]; edges: CanvasEdge[] }, at: Point
   const dy = snap(at.y - (b.y + b.height / 2), GRID);
   const map = new Map<string, string>();
   selection.clear();
+  const points = new Set<string>();
   for (const n of fragment.nodes) {
     const copy = { ...structuredClone(n), id: newId(), x: n.x + dx, y: n.y + dy };
     setLocked(copy, false);
     map.set(n.id, copy.id);
     if (copy.type === "group") data.nodes.unshift(copy);
     else data.nodes.push(copy);
-    selection.add(copy.id);
+    // A point is never selected; its connection is, below.
+    if (isPoint(copy)) points.add(copy.id);
+    else selection.add(copy.id);
   }
   for (const e of fragment.edges) {
     const from = map.get(e.fromNode);
@@ -1126,7 +1145,9 @@ function paste(fragment: { nodes: CanvasNode[]; edges: CanvasEdge[] }, at: Point
     if (!from || !to) continue;
     const copy = { ...structuredClone(e), id: newId(), fromNode: from, toNode: to };
     setLocked(copy, false);
+    setBends(copy, bendsOf(e).map((q) => ({ x: q.x + dx, y: q.y + dy })));
     data.edges.push(copy);
+    if (points.has(from) || points.has(to)) selection.add(copy.id);
   }
   commit();
 }
@@ -1275,7 +1296,19 @@ function editEdgeLabel(id: string): void {
 type Drag =
   | { kind: "pan"; start: Point; view: View }
   | { kind: "marquee"; start: Point; additive: Set<string> }
-  | { kind: "move"; start: Point; nodes: { node: CanvasNode; x: number; y: number }[]; moved: boolean; clickedId: string; bounds: Rect; others: Rect[] }
+  | {
+      kind: "move";
+      start: Point;
+      nodes: { node: CanvasNode; x: number; y: number }[];
+      /** Connections whose bends move along, with their bends at the start. */
+      bends: { edge: CanvasEdge; points: Point[] }[];
+      /** Where the element that snaps to the grid started. */
+      lead: Point;
+      moved: boolean;
+      clickedId: string;
+      bounds: Rect;
+      others: Rect[];
+    }
   | { kind: "resize"; start: Point; node: CanvasNode; x: number; y: number; width: number; height: number; dx: Pull; dy: Pull; anchor: Point; scale: number; others: Rect[] }
   | { kind: "resize-many"; from: Rect; dx: Pull; dy: Pull; items: { node: CanvasNode; rect: Rect; scale: number }[]; others: Rect[]; changed: boolean }
   | { kind: "rotate"; node: CanvasNode; center: Point; startAngle: number; rotation: number }
@@ -1413,31 +1446,15 @@ viewport.addEventListener("pointerdown", (e) => {
       selection.clear();
       selection.add(node.id);
     }
-    // Locked cards stay put; a group that moves carries every card inside it, locked or not.
-    const moving = new Map<string, CanvasNode>();
-    for (const n of selectedNodes()) {
-      if (isLocked(n)) continue;
-      moving.set(n.id, n);
-      if (n.type === "group") for (const c of childrenOf(n)) moving.set(c.id, c);
-    }
-    const movingNodes = [...moving.values()];
-    drag = {
-      kind: "move",
-      start: p,
-      nodes: movingNodes.map((n) => ({ node: n, x: n.x, y: n.y })),
-      moved: false,
-      clickedId: node.id,
-      bounds: boundsOf(movingNodes.map(outlineOf)) ?? { ...p, width: 0, height: 0 },
-      others: snapCandidates(new Set(moving.keys())),
-    };
-    viewport.setPointerCapture(e.pointerId);
-    showSelection();
+    startMove(e, p, node.id);
     return;
   }
 
   const edgeEl = target.closest<HTMLElement | SVGElement>(".edge, .edge-label");
   if (edgeEl) {
     const id = (edgeEl as HTMLElement).dataset.id!;
+    // A selected connection dragged by its line moves the whole selection.
+    if (selection.has(id)) return startMove(e, p, id);
     if (!e.shiftKey) selection.clear();
     selection.add(id);
     showSelection();
@@ -1446,6 +1463,45 @@ viewport.addEventListener("pointerdown", (e) => {
 
   startMarquee(e, p);
 });
+
+/**
+ * What moves with the selection: its unlocked cards, the cards inside a moved group, locked or not
+ * (ADR 0001), and the free ends and bends of the unlocked connections in it or among what moves.
+ */
+function movingSelection(): { nodes: CanvasNode[]; edges: CanvasEdge[] } {
+  const moving = new Map<string, CanvasNode>();
+  for (const n of selectedNodes()) {
+    if (isLocked(n)) continue;
+    moving.set(n.id, n);
+    if (n.type === "group") for (const c of childrenOf(n)) moving.set(c.id, c);
+  }
+  const edges = data.edges.filter((e) => !isLocked(e) && selection.has(e.id));
+  for (const p of pointsOfEdges(data, edges.map((e) => e.id), true)) moving.set(p.id, p);
+  for (const e of data.edges) {
+    if (!isLocked(e) && !selection.has(e.id) && moving.has(e.fromNode) && moving.has(e.toNode)) edges.push(e);
+  }
+  return { nodes: [...moving.values()], edges: edges.filter((e) => bendsOf(e).length) };
+}
+
+function startMove(e: PointerEvent, p: Point, clickedId: string): void {
+  const { nodes, edges } = movingSelection();
+  const bends = edges.map((edge) => ({ edge, points: bendsOf(edge) }));
+  const lead = nodes.find((n) => n.id === clickedId) ?? nodes[0];
+  drag = {
+    kind: "move",
+    start: p,
+    nodes: nodes.map((n) => ({ node: n, x: n.x, y: n.y })),
+    bends,
+    // A free end snaps by its spot, a card by its corner.
+    lead: lead ? (isPoint(lead) ? center(lead) : { x: lead.x, y: lead.y }) : (bends[0]?.points[0] ?? p),
+    moved: false,
+    clickedId,
+    bounds: boundsOf([...nodes.map(outlineOf), ...bends.flatMap((b) => b.points.map((q) => ({ ...q, width: 0, height: 0 })))]) ?? { ...p, width: 0, height: 0 },
+    others: snapCandidates(new Set(nodes.map((n) => n.id))),
+  };
+  viewport.setPointerCapture(e.pointerId);
+  showSelection();
+}
 
 // ---------------------------------------------------------------- tools: text and shapes
 
@@ -1626,13 +1682,12 @@ viewport.addEventListener("pointermove", (e) => {
     case "move": {
       let dx = p.x - drag.start.x;
       let dy = p.y - drag.start.y;
-      if (!drag.nodes.length || (!drag.moved && Math.hypot(dx, dy) * view.zoom < 3)) return;
+      if ((!drag.nodes.length && !drag.bends.length) || (!drag.moved && Math.hypot(dx, dy) * view.zoom < 3)) return;
       drag.moved = true;
       if (!e.altKey) {
         // Snap to the cards nearby; on an axis with none, snap the clicked card to the grid and keep the others' offsets to it.
         const s = snapGuides(shifted(drag.bounds, dx, dy), drag.others, SNAP_PX / view.zoom);
-        const clicked = drag.clickedId;
-        const lead = drag.nodes.find((m) => m.node.id === clicked) ?? drag.nodes[0]!;
+        const lead = drag.lead;
         dx = s.dx !== undefined ? dx + s.dx : snap(lead.x + dx, GRID) - lead.x;
         dy = s.dy !== undefined ? dy + s.dy : snap(lead.y + dy, GRID) - lead.y;
         showGuides(snapGuides(shifted(drag.bounds, dx, dy), drag.others, 0.01).guides);
@@ -1645,7 +1700,9 @@ viewport.addEventListener("pointermove", (e) => {
         const el = nodeElement(m.node.id);
         if (el) placeNode(el, m.node);
       }
+      for (const b of drag.bends) setBends(b.edge, b.points.map((q) => ({ x: q.x + dx, y: q.y + dy })));
       redrawEdgesOf(new Set(drag.nodes.map((m) => m.node.id)));
+      drag.bends.forEach((b) => redrawEdge(b.edge));
       updateSelectionBox();
       break;
     }
@@ -2157,7 +2214,7 @@ document.addEventListener("contextmenu", (e) => {
   }
   showSelection();
   const selected = [...selection].map((id) => nodeById(id) ?? edgeById(id)).filter((i): i is CanvasNode | CanvasEdge => !!i);
-  openContextMenu(menuItems(selected, !!clipboard), e.clientX, e.clientY, (action) => runMenuAction(action, p));
+  openContextMenu(menuItems(selected, !!clipboard, !!selectionFragment()), e.clientX, e.clientY, (action) => runMenuAction(action, p));
 });
 
 function runMenuAction(action: string, at: Point): void {
@@ -2206,15 +2263,17 @@ function selectAll(): void {
 function nudge(key: string, step: number): void {
   const dx = key === "arrowleft" ? -step : key === "arrowright" ? step : 0;
   const dy = key === "arrowup" ? -step : key === "arrowdown" ? step : 0;
-  const moved = selectedNodes().filter((n) => !isLocked(n));
-  if (!moved.length) return;
+  const { nodes: moved, edges } = movingSelection();
+  if (!moved.length && !edges.length) return;
   for (const n of moved) {
     n.x += dx;
     n.y += dy;
     const el = nodeElement(n.id);
     if (el) placeNode(el, n);
   }
+  for (const edge of edges) setBends(edge, bendsOf(edge).map((q) => ({ x: q.x + dx, y: q.y + dy })));
   redrawEdgesOf(new Set(moved.map((n) => n.id)));
+  edges.forEach(redrawEdge);
   updateSelectionBox();
   nudged = snapshot();
   nudges.schedule();

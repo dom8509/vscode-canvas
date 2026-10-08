@@ -125,6 +125,9 @@ open format Obsidian uses, so the files work in both.
   Free text in the selection scales its text with it. Free text
   you make narrower keeps that width and wraps. Arrow keys nudge the
   selection (**Shift**: further); nudges in a quick row undo in one step.
+  A selected connection moves with the selection: its free ends and its
+  bends come along, unless it is locked. Drag a selected connection by its
+  line to move the whole selection.
 - **Context menu:** right-click a card, group or connection for cut, copy,
   paste, duplicate, delete, the layer order, group selection, lock and zoom
   to selection; right-click the empty canvas for paste, select all and zoom
@@ -146,7 +149,9 @@ open format Obsidian uses, so the files work in both.
   pinch to zoom, Space+drag or middle-drag to pan. Shift+1 zooms to fit all,
   Shift+2 to fit the selection. The bar at the top right zooms too.
 - **Edit:** Delete removes the selection, Ctrl/Cmd+C/X/V copy, cut and paste
-  cards (also as text into other apps), Ctrl/Cmd+D duplicates.
+  cards (also as text into other apps), Ctrl/Cmd+D duplicates. Selected
+  connections with free ends come along, and so does a copied card's
+  connection to a free end.
   Undo and redo are VS Code's own (Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z).
 - **Source:** the *Show Source* button in the editor title opens the file as
   JSON text; *Open Canvas* goes back.
