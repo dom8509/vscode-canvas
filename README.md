@@ -83,6 +83,11 @@ open format Obsidian uses, so the files work in both.
 - **Properties:** select cards or connections and a panel on the left shows
   their properties, as in Excalidraw and tldraw: one of six colors or a custom one, and
   for connections the line and arrow styles below.
+- **Align and distribute:** with two or more cards selected, the *Align* row
+  in the properties panel lines up their left sides, centers, right sides,
+  tops, middles or bottoms. With three or more, two more buttons space them
+  out evenly across or down: the outer two stay put. A turned card counts by
+  its turned outline. Locked cards stay where they are.
 - **Move and resize:** drag cards (they snap to the grid; hold **Alt** to
   move freely); drag any corner or side to resize. Free text
   you make narrower keeps that width and wraps. Arrow keys nudge the

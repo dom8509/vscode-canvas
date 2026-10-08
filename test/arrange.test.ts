@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CanvasNode } from "../src/jsonCanvas";
-import { reorder } from "../webview/arrange";
+import { align, distribute, reorder } from "../webview/arrange";
 
 const card = (id: string): CanvasNode => ({ id, type: "text", text: "", x: 0, y: 0, width: 10, height: 10 });
 const group = (id: string): CanvasNode => ({ id, type: "group", x: 0, y: 0, width: 10, height: 10 });
@@ -47,5 +47,47 @@ describe("reorder", () => {
     const list = [card("a"), card("b")];
     reorder(list, ["a"], "front");
     expect(ids(list)).toBe("a b");
+  });
+});
+
+const r = (x: number, y: number, width: number, height: number) => ({ x, y, width, height });
+
+describe("align", () => {
+  const rects = [r(0, 0, 10, 10), r(30, 20, 20, 40), r(100, 50, 40, 10)];
+
+  it("aligns to an edge of the selection's bounds", () => {
+    expect(align(rects, "left").map((x) => x.x)).toEqual([0, 0, 0]);
+    expect(align(rects, "right").map((x) => x.x + x.width)).toEqual([140, 140, 140]);
+    expect(align(rects, "top").map((x) => x.y)).toEqual([0, 0, 0]);
+    expect(align(rects, "bottom").map((x) => x.y + x.height)).toEqual([60, 60, 60]);
+  });
+
+  it("aligns centers to the middle of the bounds", () => {
+    expect(align(rects, "center").map((x) => x.x + x.width / 2)).toEqual([70, 70, 70]);
+    expect(align(rects, "middle").map((x) => x.y + x.height / 2)).toEqual([30, 30, 30]);
+  });
+
+  it("keeps sizes and the other axis", () => {
+    const out = align(rects, "left");
+    expect(out.map((x) => [x.y, x.width, x.height])).toEqual(rects.map((x) => [x.y, x.width, x.height]));
+  });
+});
+
+describe("distribute", () => {
+  it("keeps the outer two and makes the gaps equal", () => {
+    const out = distribute([r(0, 0, 10, 10), r(15, 0, 10, 10), r(90, 0, 10, 10)], "horizontal");
+    expect(out.map((x) => x.x)).toEqual([0, 45, 90]);
+  });
+
+  it("works in the list's order, whatever order the cards lie in", () => {
+    const out = distribute([r(90, 0, 10, 10), r(0, 0, 10, 10), r(15, 0, 10, 10)], "horizontal");
+    expect(out.map((x) => x.x)).toEqual([90, 0, 45]);
+  });
+
+  it("makes equal gaps also when cards overlap", () => {
+    const out = distribute([r(0, 0, 0, 40), r(0, 5, 0, 40), r(0, 50, 0, 40)], "vertical");
+    expect(out.map((x) => x.y)).toEqual([0, 25, 50]);
+    const wide = distribute([r(0, 0, 60, 10), r(10, 0, 60, 10), r(50, 0, 60, 10)], "horizontal");
+    expect(wide.map((x) => x.x)).toEqual([0, 25, 50]);
   });
 });

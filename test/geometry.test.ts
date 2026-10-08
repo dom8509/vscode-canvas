@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { anchor, autoSides, boundsOf, containsRect, edgeCurve, fitView, gridAround, sideFacing, zoomAt } from "../webview/geometry";
+import { anchor, autoSides, boundsOf, containsRect, edgeCurve, fitView, gridAround, sideFacing, turnedBounds, zoomAt } from "../webview/geometry";
 
 const r = { x: 0, y: 0, width: 200, height: 100 };
 
@@ -59,5 +59,21 @@ describe("geometry", () => {
       { x: -110, y: 10 },
     ]);
     expect(gridAround({ x: 0, y: 0 }, [], 20)).toEqual([]);
+  });
+});
+
+describe("turnedBounds", () => {
+  it("is the rect itself when not turned", () => {
+    expect(turnedBounds({ x: 10, y: 20, width: 40, height: 20 }, 0)).toEqual({ x: 10, y: 20, width: 40, height: 20 });
+  });
+
+  it("is the box around the turned outline", () => {
+    const b = turnedBounds({ x: 0, y: 0, width: 40, height: 20 }, 90);
+    expect(b.x).toBeCloseTo(10);
+    expect(b.y).toBeCloseTo(-10);
+    expect(b.width).toBeCloseTo(20);
+    expect(b.height).toBeCloseTo(40);
+    const d = turnedBounds({ x: 0, y: 0, width: 10, height: 10 }, 45);
+    expect(d.width).toBeCloseTo(Math.SQRT2 * 10);
   });
 });

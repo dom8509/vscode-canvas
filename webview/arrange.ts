@@ -2,6 +2,7 @@
 // scaling several cards at once. Pure functions on cards and rectangles.
 
 import { type CanvasNode, isLocked } from "../src/jsonCanvas";
+import { type Rect, boundsOf } from "./geometry";
 
 export type LayerOp = "forward" | "backward" | "front" | "back";
 
@@ -32,4 +33,49 @@ export function reorder(nodes: CanvasNode[], ids: Iterable<string>, op: LayerOp)
   const groups = nodes.filter((n) => n.type === "group");
   const cards = nodes.filter((n) => n.type !== "group");
   return [...move(groups, picked, op), ...move(cards, picked, op)];
+}
+
+export type AlignEdge = "left" | "center" | "right" | "top" | "middle" | "bottom";
+
+/** The rects moved so the given edge or center of each lines up with that of their bounds. Sizes stay. */
+export function align(rects: Rect[], edge: AlignEdge): Rect[] {
+  const b = boundsOf(rects);
+  if (!b) return [];
+  return rects.map((r) => {
+    switch (edge) {
+      case "left":
+        return { ...r, x: b.x };
+      case "center":
+        return { ...r, x: b.x + (b.width - r.width) / 2 };
+      case "right":
+        return { ...r, x: b.x + b.width - r.width };
+      case "top":
+        return { ...r, y: b.y };
+      case "middle":
+        return { ...r, y: b.y + (b.height - r.height) / 2 };
+      case "bottom":
+        return { ...r, y: b.y + b.height - r.height };
+    }
+  });
+}
+
+/**
+ * The rects spread along an axis so the gaps between them are equal. The first and the last, by their
+ * centers, stay where they are. Returned in the order given.
+ */
+export function distribute(rects: Rect[], axis: "horizontal" | "vertical"): Rect[] {
+  const [pos, size] = axis === "horizontal" ? (["x", "width"] as const) : (["y", "height"] as const);
+  const order = rects.map((_, i) => i).sort((a, b) => rects[a]![pos] + rects[a]![size] / 2 - (rects[b]![pos] + rects[b]![size] / 2));
+  const out = rects.map((r) => ({ ...r }));
+  if (rects.length < 3) return out;
+  const first = rects[order[0]!]!;
+  const last = rects[order[order.length - 1]!]!;
+  const total = rects.reduce((sum, r) => sum + r[size], 0);
+  const gap = (last[pos] + last[size] - first[pos] - total) / (rects.length - 1);
+  let at = first[pos];
+  for (const i of order) {
+    out[i]![pos] = at;
+    at += rects[i]![size] + gap;
+  }
+  return out;
 }

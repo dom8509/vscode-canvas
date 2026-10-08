@@ -58,12 +58,13 @@ import {
   resizedCorner,
   rotatePoint,
   sideFacing,
+  turnedBounds,
   turnedSide,
   snap,
   zoomAt,
 } from "./geometry";
 import { sectionText } from "../src/subpath";
-import { type LayerOp, reorder } from "./arrange";
+import { type AlignEdge, type LayerOp, align, distribute, reorder } from "./arrange";
 import {
   DEFAULT_DRAWING_STYLE,
   DRAWING_STYLE_NAMES,
@@ -178,6 +179,12 @@ app.innerHTML = `
         <button class="picker" data-menu="fromHead" title="Start"></button>
         <button class="picker" data-menu="toHead" title="End"></button>
       </div>
+    </section>
+    <section class="arrange-tools">
+      <h3>Align</h3>
+      <div class="segmented">${(["left", "center", "right"] as const).map((v) => `<button data-align="${v}" title="Align ${v}">${icon(`align-${v}`)}</button>`).join("")}</div>
+      <div class="segmented">${(["top", "middle", "bottom"] as const).map((v) => `<button data-align="${v}" title="Align ${v}">${icon(`align-${v}`)}</button>`).join("")}</div>
+      <div class="segmented distribute-tools">${(["horizontal", "vertical"] as const).map((v) => `<button data-distribute="${v}" title="Distribute ${v}ly">${icon(`distribute-${v}`)}</button>`).join("")}</div>
     </section>
     <section>
       <h3>Style</h3>
@@ -706,6 +713,9 @@ function updateColorbar(): void {
   // The edge properties show when edges are selected. A value all of them share is marked.
   const styles = [...selection].map(edgeById).filter((e): e is CanvasEdge => !!e).map(edgeStyle);
   props.classList.toggle("has-edges", styles.length > 0);
+  const cardCount = selectedNodes().length;
+  props.classList.toggle("can-align", cardCount >= 2);
+  props.classList.toggle("can-distribute", cardCount >= 3);
   const shared = <K extends keyof EdgeStyle>(key: K): EdgeStyle[K] | undefined =>
     styles.every((s) => s[key] === styles[0]?.[key]) ? styles[0]?.[key] : undefined;
   props.querySelectorAll<HTMLElement>("[data-style]").forEach((b) => {
@@ -913,6 +923,41 @@ function toggleLock(): void {
     if (item) setLocked(item, on);
   }
   commit();
+}
+
+/** The upright box around a card as drawn, turned or not. Align, distribute and snap use it. */
+function outlineOf(node: CanvasNode): Rect {
+  return turnedBounds(node, rotationOf(node));
+}
+
+/** Moves the selected cards to their rects in `place`, given in the order of `cards`. A group takes its cards along. */
+function moveCardsTo(cards: CanvasNode[], place: Rect[]): void {
+  const moved = new Set<string>();
+  cards.forEach((n, i) => {
+    const before = outlineOf(n);
+    const dx = place[i]!.x - before.x;
+    const dy = place[i]!.y - before.y;
+    if (isLocked(n) || (!dx && !dy)) return;
+    const carried = n.type === "group" ? childrenOf(n).filter((c) => !selection.has(c.id)) : [];
+    for (const m of [n, ...carried]) {
+      if (moved.has(m.id)) continue;
+      moved.add(m.id);
+      m.x += dx;
+      m.y += dy;
+    }
+  });
+  if (moved.size) commit();
+}
+
+/** Lines up the selected cards; locked ones stay where they are. */
+function alignSelection(edge: AlignEdge): void {
+  const cards = selectedNodes();
+  moveCardsTo(cards, align(cards.map(outlineOf), edge));
+}
+
+function distributeSelection(axis: "horizontal" | "vertical"): void {
+  const cards = selectedNodes();
+  moveCardsTo(cards, distribute(cards.map(outlineOf), axis));
 }
 
 /** Moves the selected cards in the layer order. Groups move only among groups. */
@@ -1870,6 +1915,8 @@ app.addEventListener("click", (e) => {
     return setSelectedNodeLook({ [button.dataset.look]: button.dataset.value });
   }
   if (button.dataset.menu) return toggleHeadMenu(button);
+  if (button.dataset.align) return alignSelection(button.dataset.align as AlignEdge);
+  if (button.dataset.distribute) return distributeSelection(button.dataset.distribute as "horizontal" | "vertical");
   if (isDrawingStyle(button.dataset.drawing)) return setSelectedDrawingStyle(button.dataset.drawing);
   if (button.dataset.style) {
     if (button.parentElement === headMenu) closeHeadMenu();

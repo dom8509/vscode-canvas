@@ -622,6 +622,8 @@ button {
 
 #props[hidden],
 #props:not(.has-edges) .edge-tools,
+#props:not(.can-align) .arrange-tools,
+#props:not(.can-distribute) .distribute-tools,
 #props:not(.has-shapes) .shape-tools,
 #props:not(.has-text) .text-tools,
 #props:not(.has-border) .border-tools,
