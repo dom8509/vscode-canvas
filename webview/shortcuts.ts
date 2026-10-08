@@ -26,6 +26,10 @@ export const SHORTCUTS: Shortcut[] = [
   { id: "text", label: "Text", group: "tools", keys: ["T"] },
   { id: "rectangle", label: "Rectangle", group: "tools", keys: ["R"] },
   { id: "ellipse", label: "Ellipse", group: "tools", keys: ["O"] },
+  { id: "arrow", label: "Arrow", group: "tools", keys: ["A"] },
+  { id: "line", label: "Line", group: "tools", keys: ["L"] },
+  { id: "pen", label: "Pen", group: "tools", keys: ["P"] },
+  { id: "eraser", label: "Eraser", group: "tools", keys: ["E"] },
   { id: "card", label: "Add card", group: "tools", keys: ["N"] },
   { id: "group", label: "Add group", group: "tools", keys: ["G"] },
 

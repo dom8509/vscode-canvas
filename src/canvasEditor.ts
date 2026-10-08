@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
-import { imageFileName, isImagePath, isTextPath, uniqueFileName } from "./jsonCanvas";
+import { imageFileName, isImagePath, isTextPath, mimeOf, uniqueFileName } from "./jsonCanvas";
 import { findSection } from "./subpath";
-import type { DroppedItem, FileInfo, HostMessage, ImageData, WebviewMessage } from "./protocol";
+import type { DroppedItem, ExportFormat, FileInfo, HostMessage, ImageData, WebviewMessage } from "./protocol";
 
 const MAX_DROPPED_FILES = 50;
 const EXCLUDED = "{**/node_modules/**,**/.git/**,**/*.canvas}";
@@ -12,6 +12,25 @@ const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "bmp", "svg", "webp", "av
 export class CanvasEditorProvider implements vscode.CustomTextEditorProvider {
   static readonly viewType = "canvas.editor";
   static activeUri: vscode.Uri | undefined;
+  /** How to send a message to the webview of the canvas editor that was active last. Two editors on one file each have their own. */
+  private static activePost: ((msg: HostMessage) => void) | undefined;
+
+  /**
+   * Asks for the export options, then the active canvas for its picture. The paper starts on `paper`,
+   * the one the canvas shows; background and scale start on the ones picked last.
+   */
+  async exportActive(format: ExportFormat, paper: Paper = shownPaper()): Promise<void> {
+    const post = CanvasEditorProvider.activePost;
+    if (!post) {
+      void vscode.window.showInformationMessage("Open a canvas first.");
+      return;
+    }
+    const saved = this.context.globalState.get<Partial<ExportChoices>>(EXPORT_STATE) ?? {};
+    const choices = await pickExportOptions(format, { background: saved.background ?? true, paper, scale: saved.scale ?? 2 });
+    if (!choices) return;
+    await this.context.globalState.update(EXPORT_STATE, { background: choices.background, scale: choices.scale });
+    post({ type: "export", format, ...choices });
+  }
 
   constructor(private readonly context: vscode.ExtensionContext) {}
 
@@ -34,6 +53,7 @@ export class CanvasEditorProvider implements vscode.CustomTextEditorProvider {
     // The text the webview shows. A document change to other text (undo, redo, an edit as text) is sent to it.
     let shown: string | undefined;
     const post = (msg: HostMessage) => void webview.postMessage(msg);
+
     const sendDocument = () => {
       const text = document.getText();
       if (text === shown) return;
@@ -47,7 +67,9 @@ export class CanvasEditorProvider implements vscode.CustomTextEditorProvider {
     };
 
     const track = () => {
-      if (panel.active) CanvasEditorProvider.activeUri = document.uri;
+      if (!panel.active) return;
+      CanvasEditorProvider.activeUri = document.uri;
+      CanvasEditorProvider.activePost = post;
     };
     track();
 
@@ -109,6 +131,15 @@ export class CanvasEditorProvider implements vscode.CustomTextEditorProvider {
           case "notify":
             void vscode.window.showInformationMessage(msg.text);
             break;
+          case "inline":
+            post({ type: "inlined", data: await this.inline(root, msg.paths) });
+            break;
+          case "exportRequest":
+            await vscode.commands.executeCommand(msg.format === "png" ? "canvas.exportPng" : "canvas.exportSvg", { paper: msg.paper });
+            break;
+          case "exported":
+            await this.saveExport(document.uri, msg.format, msg.base64);
+            break;
           case "undo":
           case "redo":
             await vscode.commands.executeCommand(msg.type);
@@ -122,10 +153,44 @@ export class CanvasEditorProvider implements vscode.CustomTextEditorProvider {
 
     panel.onDidDispose(() => {
       subs.forEach((s) => s.dispose());
+      if (CanvasEditorProvider.activePost === post) CanvasEditorProvider.activePost = undefined;
       if (CanvasEditorProvider.activeUri?.toString() === document.uri.toString()) {
         CanvasEditorProvider.activeUri = undefined;
       }
     });
+  }
+
+  /** Files as data URIs: workspace files by their path, the extension's own by "extension:" and theirs. Unreadable ones are left out. */
+  private async inline(root: vscode.Uri, paths: string[]): Promise<Record<string, string>> {
+    const data: Record<string, string> = {};
+    await Promise.all(
+      paths.map(async (path) => {
+        const own = path.startsWith("extension:");
+        const uri = own ? vscode.Uri.joinPath(this.context.extensionUri, ...path.slice("extension:".length).split("/")) : this.fileUri(root, path);
+        try {
+          const bytes = await vscode.workspace.fs.readFile(uri);
+          data[path] = `data:${mimeOf(path)};base64,${Buffer.from(bytes).toString("base64")}`;
+        } catch {
+          // The export shows it missing, as the canvas does.
+        }
+      }),
+    );
+    return data;
+  }
+
+  /** Saves an export through the save dialog, which starts next to the canvas with its name. */
+  private async saveExport(canvas: vscode.Uri, format: ExportFormat, base64: string): Promise<void> {
+    const name = canvas.path.split("/").pop()!.replace(/\.canvas$/i, "");
+    const target = await vscode.window.showSaveDialog({
+      defaultUri: vscode.Uri.joinPath(canvas, "..", `${name}.${format}`),
+      filters: format === "png" ? { "PNG image": ["png"] } : { "SVG image": ["svg"] },
+    });
+    if (!target) return;
+    try {
+      await vscode.workspace.fs.writeFile(target, Buffer.from(base64, "base64"));
+    } catch (err) {
+      void vscode.window.showErrorMessage(`Could not save ${target.path.split("/").pop()}: ${(err as Error).message}`);
+    }
   }
 
   private fileUri(root: vscode.Uri, path: string): vscode.Uri {
@@ -333,6 +398,57 @@ export class CanvasEditorProvider implements vscode.CustomTextEditorProvider {
 </body>
 </html>`;
   }
+}
+
+type Paper = "light" | "dark";
+type ExportChoices = { background: boolean; paper: Paper; scale: 1 | 2 | 3 };
+const EXPORT_STATE = "canvas.export";
+
+/** The paper canvases show now, by the `canvas.theme` setting and the color theme. */
+function shownPaper(): Paper {
+  const setting = vscode.workspace.getConfiguration("canvas").get<string>("theme", "auto");
+  if (setting === "light" || setting === "dark") return setting;
+  const kind = vscode.window.activeColorTheme.kind;
+  return kind === vscode.ColorThemeKind.Dark || kind === vscode.ColorThemeKind.HighContrast ? "dark" : "light";
+}
+
+/**
+ * One quick pick for the export options: picking a line switches it, picking *Export* saves.
+ * Scale is only for PNG.
+ */
+function pickExportOptions(format: ExportFormat, start: ExportChoices): Promise<ExportChoices | undefined> {
+  const choices = { ...start };
+  type Item = vscode.QuickPickItem & { key: "save" | "background" | "paper" | "scale" };
+  const pick = vscode.window.createQuickPick<Item>();
+  pick.title = `Export as ${format.toUpperCase()}`;
+  pick.placeholder = "Pick a line to change it, then Export";
+  const items = (): Item[] => [
+    { key: "save", label: "$(save) Export…", description: "choose where to save it" },
+    { key: "background", label: `Background: ${choices.background ? "on" : "off"}`, description: choices.background ? "the paper's color" : "transparent" },
+    { key: "paper", label: `Paper: ${choices.paper}`, description: choices.paper === "light" ? "dark ink on white" : "light ink on dark" },
+    ...(format === "png" ? [{ key: "scale" as const, label: `Scale: ${choices.scale}×`, description: "1×, 2× or 3× the size on the canvas" }] : []),
+  ];
+  pick.items = items();
+  return new Promise((resolve) => {
+    pick.onDidAccept(() => {
+      const key = pick.selectedItems[0]?.key ?? "save";
+      if (key === "save") {
+        resolve(choices);
+        pick.hide();
+        return;
+      }
+      if (key === "background") choices.background = !choices.background;
+      if (key === "paper") choices.paper = choices.paper === "light" ? "dark" : "light";
+      if (key === "scale") choices.scale = choices.scale === 3 ? 1 : ((choices.scale + 1) as 2 | 3);
+      pick.items = items();
+      pick.activeItems = pick.items.filter((i) => i.key === key);
+    });
+    pick.onDidHide(() => {
+      resolve(undefined);
+      pick.dispose();
+    });
+    pick.show();
+  });
 }
 
 /** The path of a file relative to the canvas root, with forward slashes, or undefined when it lies outside. */

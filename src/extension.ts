@@ -4,10 +4,11 @@ import { CanvasEditorProvider } from "./canvasEditor";
 const EMPTY_CANVAS = '{\n\t"nodes":[],\n\t"edges":[]\n}';
 
 export function activate(context: vscode.ExtensionContext): void {
+  const provider = new CanvasEditorProvider(context);
   context.subscriptions.push(
     vscode.window.registerCustomEditorProvider(
       CanvasEditorProvider.viewType,
-      new CanvasEditorProvider(context),
+      provider,
       { webviewOptions: { retainContextWhenHidden: true } },
     ),
 
@@ -39,6 +40,10 @@ export function activate(context: vscode.ExtensionContext): void {
       const target = uri ?? CanvasEditorProvider.activeUri;
       if (target) void vscode.commands.executeCommand("vscode.openWith", target, "default");
     }),
+
+    // The zoom bar buttons and the context menu run these too, with the paper the canvas shows.
+    vscode.commands.registerCommand("canvas.exportPng", (args?: { paper?: "light" | "dark" }) => provider.exportActive("png", args?.paper)),
+    vscode.commands.registerCommand("canvas.exportSvg", (args?: { paper?: "light" | "dark" }) => provider.exportActive("svg", args?.paper)),
 
     vscode.commands.registerCommand("canvas.showCanvas", (uri?: vscode.Uri) => {
       const target = uri ?? vscode.window.activeTextEditor?.document.uri;

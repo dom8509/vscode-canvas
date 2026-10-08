@@ -1,6 +1,8 @@
 import {
   type CanvasData,
   type CanvasEdge,
+  bendsOf,
+  copyFragment,
   type CanvasNode,
   type EdgeStyle,
   type NodeLook,
@@ -23,7 +25,18 @@ import {
   rotationOf,
   isImageFile,
   isLocked,
+  isClosed,
+  isPoint,
+  isStroke,
+  pointNodeAt,
+  pointsOfEdges,
+  prunePoints,
+  rebind,
+  setBends,
+  setClosed,
   setLocked,
+  setStrokePoints,
+  strokePoints,
   isImagePath,
   isTextPath,
   newId,
@@ -37,16 +50,19 @@ import {
   MAX_TEXT_SCALE,
   MIN_TEXT_SCALE,
 } from "../src/jsonCanvas";
+import type { EndTarget } from "../src/jsonCanvas";
 import type { DroppedItem, FileInfo, HostMessage, ImageData, WebviewMessage } from "../src/protocol";
 import {
   type Point,
   type Rect,
   type View,
   anchor,
+  bentPath,
   center,
   boundsOf,
   containsRect,
   edgePath,
+  exportBounds,
   fitView,
   gridAround,
   headPath,
@@ -58,6 +74,7 @@ import {
   resizedCorner,
   rotatePoint,
   sideFacing,
+  snapAngle,
   turnedBounds,
   turnedSide,
   snap,
@@ -75,6 +92,7 @@ import {
   setDrawingStyle,
 } from "./drawingStyles";
 import { sketchPath } from "./sketch";
+import { closes, scalePoints, simplify, smoothPath, type EdgeLine, strokeBox, touched } from "./strokes";
 import { escapeHtml, renderMarkdown, stripFrontMatter } from "./markdown";
 import { defaultShapeSize, shapeMarks, shapePath } from "./shapes";
 import { icon, shapeIcon, title } from "./icons";
@@ -86,6 +104,8 @@ import { menuItems } from "./contextMenuItems";
 import { resolveTheme } from "./theme";
 import { type NodeDefaults, pickNodeDefaults } from "./nodeDefaults";
 import { coalescer } from "./coalesce";
+import { buildSvg, exportItems, inlineUrls, svgToPng } from "./export";
+import boardCss from "./style.css";
 
 declare function acquireVsCodeApi(): {
   postMessage(msg: WebviewMessage): void;
@@ -146,12 +166,13 @@ app.innerHTML = `
       <div id="groups"></div>
       <svg id="edges"></svg>
       <div id="nodes"></div>
+      <svg id="pen-layer"></svg>
       <div id="labels"></div>
       <div id="selection-box" hidden></div>
       <svg id="guides"></svg>
     </div>
     <div id="marquee" hidden></div>
-    <div id="empty-hint" hidden>Double-click to write · T text · R O shapes · drop files here · ? shortcuts</div>
+    <div id="empty-hint" hidden>Double-click to write · T text · R O shapes · A L arrow, line · P pen · E eraser · drop files here · ? shortcuts</div>
   </div>
   <div id="error" hidden>
     <p></p>
@@ -173,7 +194,7 @@ app.innerHTML = `
       ${segmentedLook("fill", FILLS)}
     </section>
     <section class="border-tools">
-      <h3>Border</h3>
+      <h3 class="border-title">Border</h3>
       ${segmentedLook("strokeWidth", LINE_WIDTHS)}
     </section>
     <section class="text-tools">
@@ -215,7 +236,8 @@ app.innerHTML = `
     <button data-action="zoom-reset" id="zoom-level" title="${tooltip("zoomReset", "Reset zoom")}">100%</button>
     <button data-action="zoom-out" title="${tooltip("zoomOut")}">${icon("minus")}</button>
     <button data-action="fit" title="${tooltip("fit")}">${icon("fit")}</button>
-    <button data-action="canvas-style" id="canvas-style"></button>
+    <button data-action="export-png" class="export-button" title="Export as PNG">PNG</button>
+    <button data-action="export-svg" class="export-button" title="Export as SVG">SVG</button>
     <button data-action="undo" title="${tooltip("undo")}">${icon("undo")}</button>
     <button data-action="redo" title="${tooltip("redo")}">${icon("redo")}</button>
     <button data-action="help" title="${tooltip("help")}">${icon("help")}</button>
@@ -230,6 +252,8 @@ const nodesLayer = document.getElementById("nodes")!;
 const edgesLayer = document.getElementById("edges") as unknown as SVGSVGElement;
 const labelsLayer = document.getElementById("labels")!;
 const guidesLayer = document.getElementById("guides") as unknown as SVGSVGElement;
+/** The live line of the pen, above the cards. */
+const penLayer = document.getElementById("pen-layer") as unknown as SVGSVGElement;
 const selectionBox = document.getElementById("selection-box")!;
 const marquee = document.getElementById("marquee")!;
 const errorBox = document.getElementById("error")!;
@@ -341,7 +365,9 @@ function childrenOf(group: CanvasNode): CanvasNode[] {
 
 // ---------------------------------------------------------------- saving
 
+/** The canvas as text. A point left without a connection goes first: deleting a connection deletes its free ends. */
 function snapshot(): string {
+  prunePoints(data);
   return serializeCanvas(data);
 }
 
@@ -364,6 +390,8 @@ document.addEventListener("visibilitychange", () => nudges.flush());
 
 function applyView(): void {
   world.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`;
+  // One screen pixel in canvas units, for hit areas that stay the same size on screen.
+  world.style.setProperty("--screen-px", `${1 / view.zoom}px`);
   viewport.style.backgroundPosition = `${view.x}px ${view.y}px`;
   viewport.style.backgroundSize = `${GRID * view.zoom}px ${GRID * view.zoom}px`;
   viewport.classList.toggle("far", view.zoom < 0.5);
@@ -404,7 +432,6 @@ function render(): void {
   renderEdges();
   updateSelectionBox();
   updateColorbar();
-  updateCanvasStyleButton();
 }
 
 function renderNodes(): void {
@@ -412,6 +439,7 @@ function renderNodes(): void {
   nodesLayer.replaceChildren();
   const missing: string[] = [];
   for (const node of data.nodes) {
+    if (isPoint(node)) continue;
     const el = document.createElement("div");
     el.className = `node type-${node.type}`;
     el.dataset.id = node.id;
@@ -425,6 +453,9 @@ function renderNodes(): void {
     if (node.type === "group") {
       renderGroup(el, node);
       groupsLayer.append(el);
+    } else if (isStroke(node) && !isClosed(node)) {
+      renderStroke(el, node);
+      nodesLayer.append(el);
     } else {
       const body = document.createElement("div");
       body.className = "content";
@@ -435,7 +466,13 @@ function renderNodes(): void {
         if (look.fontFamily !== "sans") el.classList.add(`ff-${look.fontFamily}`);
         if (look.strokeWidth !== "normal") el.classList.add(`stroke-${look.strokeWidth}`);
       }
-      if (node.type === "text") {
+      if (isClosed(node)) {
+        // A custom shape: its outline as drawn, a fill, and text in the middle of its box.
+        renderStroke(el, node);
+        el.classList.add("shape", `fill-${nodeLook(node).fill}`);
+        el.append(body);
+        body.innerHTML = renderMarkdown((node as TextNode).text);
+      } else if (node.type === "text") {
         const look = nodeLook(node);
         if (look.shape === "text") el.classList.add("free-text");
         else if (look.shape !== "card") el.classList.add("shape", `fill-${look.fill}`);
@@ -451,7 +488,7 @@ function renderNodes(): void {
     drawOutline(el, node);
     if (isLocked(node)) el.insertAdjacentHTML("beforeend", `<div class="lock-badge" title="Locked">${icon("lock")}</div>`);
 
-    for (const side of SIDES) {
+    for (const side of isStroke(node) && !isClosed(node) ? [] : SIDES) {
       const h = document.createElement("div");
       h.className = `connect side-${side}`;
       h.dataset.side = side;
@@ -486,11 +523,33 @@ function placeNode(el: HTMLElement, node: CanvasNode): void {
   if (scale !== 1) el.style.setProperty("--text-scale", String(scale));
   else el.style.removeProperty("--text-scale");
   if (el.dataset.drawn) drawOutline(el, node);
+  // While a stroke is resized its line stretches with the box; its points are rewritten on release.
+  const drawn = el.querySelector(":scope > .stroke-svg");
+  if (drawn) {
+    drawn.setAttribute("width", String(node.width));
+    drawn.setAttribute("height", String(node.height));
+  }
+}
+
+/**
+ * A pen stroke: its line in its drawing style, and a wider invisible line that takes the clicks. A custom
+ * shape adds its filled outline, smooth or, when closed from a pinned line, with straight sides.
+ */
+function renderStroke(el: HTMLElement, node: CanvasNode): void {
+  el.classList.add("stroke");
+  const points = strokePoints(node);
+  const closed = isClosed(node);
+  const d = closed && node.sharp === true ? "M " + points.map((p) => `${p.x} ${p.y}`).join(" L ") + " Z" : smoothPath(points, closed);
+  // One smooth, unbroken line, as a pen draws it: no sketchy strokes.
+  const line = d;
+  const width = WIDTHS[nodeLook(node).strokeWidth];
+  el.innerHTML = `<svg class="stroke-svg" viewBox="0 0 ${node.width} ${node.height}" width="${node.width}" height="${node.height}" preserveAspectRatio="none" style="--stroke-px: ${width}px">
+    ${closed ? `<path class="outline" d="${d}"/>` : ""}<path class="hit" d="${d}"/><path class="line" d="${line}"/></svg>`;
 }
 
 /** The hand-drawn outline of a card or shape, redrawn when its size changes. Free text has none. */
 function drawOutline(el: HTMLElement, node: CanvasNode): void {
-  if (el.classList.contains("free-text")) return;
+  if (el.classList.contains("free-text") || el.classList.contains("stroke")) return;
   const shaped = el.classList.contains("shape");
   const shape = (shaped ? nodeLook(node).shape : "rectangle") as ShapeKind;
   const { width: w, height: h } = node;
@@ -639,15 +698,19 @@ function edgeGeometry(edge: CanvasEdge) {
   const from = nodeById(edge.fromNode);
   const to = nodeById(edge.toNode);
   if (!from || !to) return undefined;
-  const fromSide = edge.fromSide ?? facingSide(from, center(to));
-  const toSide = edge.toSide ?? facingSide(to, center(from));
-  return edgePath(
-    nodeAnchor(from, fromSide),
-    turnedSide(fromSide, rotationOf(from)),
-    nodeAnchor(to, toSide),
-    turnedSide(toSide, rotationOf(to)),
-    edgeStyle(edge).pathStyle,
-  );
+  const bends = bendsOf(edge);
+  // A bound end without a stored side faces its nearest bend, else the other card.
+  const a = endOf(from, edge.fromSide, bends[0] ?? center(to));
+  const b = endOf(to, edge.toSide, bends[bends.length - 1] ?? center(from));
+  const style = edgeStyle(edge).pathStyle;
+  return bends.length ? bentPath([a.at, ...bends, b.at], style) : edgePath(a.at, a.side, b.at, b.side, style);
+}
+
+/** Where an edge meets a node: the middle of a card's side, turned with the card, or a free end with no side. */
+function endOf(node: CanvasNode, side: Side | undefined, toward: Point): { at: Point; side: Side | null } {
+  if (isPoint(node)) return { at: center(node), side: null };
+  const s = side ?? facingSide(node, toward);
+  return { at: nodeAnchor(node, s), side: turnedSide(s, rotationOf(node)) };
 }
 
 // A turned card keeps its box in the file; its sides turn with it.
@@ -675,11 +738,12 @@ function renderEdges(): void {
 
 /** Redraws only the connections of the given cards, so a drag on a big canvas stays smooth. */
 function redrawEdgesOf(ids: Set<string>): void {
-  for (const edge of data.edges) {
-    if (!ids.has(edge.fromNode) && !ids.has(edge.toNode)) continue;
-    world.querySelectorAll(`#edges [data-id="${CSS.escape(edge.id)}"], #labels [data-id="${CSS.escape(edge.id)}"]`).forEach((el) => el.remove());
-    drawEdge(edge);
-  }
+  for (const edge of data.edges) if (ids.has(edge.fromNode) || ids.has(edge.toNode)) redrawEdge(edge);
+}
+
+function redrawEdge(edge: CanvasEdge): void {
+  world.querySelectorAll(`#edges [data-id="${CSS.escape(edge.id)}"], #labels [data-id="${CSS.escape(edge.id)}"]`).forEach((el) => el.remove());
+  drawEdge(edge);
 }
 
 function drawEdge(edge: CanvasEdge): void {
@@ -728,6 +792,31 @@ function drawEdge(edge: CanvasEdge): void {
     labelsLayer.append(badge);
   }
 
+  if (!isLocked(edge)) {
+    // A round handle at each end, shown while the connection is selected: drag it to another card or to empty space.
+    for (const [end, at] of [["from", geo.start], ["to", geo.end]] as const) {
+      const h = document.createElement("div");
+      h.className = "end-handle";
+      h.dataset.id = edge.id;
+      h.dataset.end = end;
+      h.classList.toggle("selected", selection.has(edge.id));
+      h.style.left = `${at.x}px`;
+      h.style.top = `${at.y}px`;
+      labelsLayer.append(h);
+    }
+    // A small square on each bend: drag it to move the bend.
+    bendsOf(edge).forEach((at, index) => {
+      const h = document.createElement("div");
+      h.className = "bend-handle";
+      h.dataset.id = edge.id;
+      h.dataset.index = String(index);
+      h.classList.toggle("selected", selection.has(edge.id));
+      h.style.left = `${at.x}px`;
+      h.style.top = `${at.y}px`;
+      labelsLayer.append(h);
+    });
+  }
+
   if (edge.label) {
     const label = document.createElement("div");
     label.className = "edge-label";
@@ -744,7 +833,7 @@ function drawEdge(edge: CanvasEdge): void {
 
 /** Shows a changed selection without redrawing, so the elements under the pointer stay the same (a double-click needs that). */
 function showSelection(): void {
-  world.querySelectorAll<HTMLElement>(".node, .edge, .edge-label, .edge-lock").forEach((el) => {
+  world.querySelectorAll<HTMLElement>(".node, .edge, .edge-label, .edge-lock, .end-handle, .bend-handle").forEach((el) => {
     el.classList.toggle("selected", selection.has(el.dataset.id!));
   });
   updateColorbar();
@@ -782,17 +871,21 @@ function updateColorbar(): void {
   });
   // Text, border and shape properties, for the text and file cards they apply to. Pictures have no text to set.
   const styled = [...selection].map(nodeById).filter((n): n is CanvasNode => n?.type === "text" || n?.type === "file");
-  const looks = styled.filter((n) => !(n.type === "file" && isImagePath(n.file))).map(nodeLook);
-  const shapes = looks.filter((l) => l.shape !== "card" && l.shape !== "text");
+  // Pictures and strokes have no text; a stroke's border is its width. A custom shape has text and a fill, but no shape to pick.
+  const looks = styled.filter((n) => !(n.type === "file" && isImagePath(n.file)) && (!isStroke(n) || isClosed(n))).map(nodeLook);
+  const filled = looks.filter((l) => l.shape !== "card" && l.shape !== "text");
+  const shapes = filled.filter((l) => l.shape !== "draw");
   const bordered = styled.map(nodeLook).filter((l) => l.shape !== "text");
-  props.classList.toggle("has-shapes", shapes.length > 0);
+  props.querySelector(".border-title")!.textContent = bordered.length && bordered.every((l) => l.shape === "draw") ? "Width" : "Border";
+  props.classList.toggle("has-shapes", filled.length > 0);
+  props.querySelector<HTMLElement>('[data-menu="shape"]')!.parentElement!.style.display = shapes.length ? "" : "none";
   props.classList.toggle("has-text", looks.length > 0);
   props.classList.toggle("has-border", bordered.length > 0);
   const sharedLook = <K extends keyof NodeLook>(list: NodeLook[], key: K): NodeLook[K] | undefined =>
     list.every((l) => l[key] === list[0]?.[key]) ? list[0]?.[key] : undefined;
   const lookList: Record<keyof NodeLook, NodeLook[]> = {
     shape: shapes,
-    fill: shapes,
+    fill: filled,
     strokeWidth: bordered,
     fontSize: looks,
     fontFamily: looks,
@@ -844,7 +937,7 @@ function closeHeadMenu(): void {
 
 /** Gives a new card the color and look picked last, as far as they fit it. */
 function applyNodeDefaults(node: CanvasNode): CanvasNode {
-  const { color, ...look } = pickNodeDefaults(nodeDefaults, nodeLook(node).shape);
+  const { color, ...look } = pickNodeDefaults(nodeDefaults, nodeLook(node).shape, isClosed(node));
   if (color) node.color = color;
   setNodeLook(node, look);
   return node;
@@ -861,9 +954,11 @@ function setSelectedNodeLook(look: Partial<NodeLook>): void {
     if (isLocked(node)) continue;
     const kind = nodeLook(node).shape;
     // Text settings fit every text card and note; a border not free text; shape and fill only shapes.
-    const part: Partial<NodeLook> = node.type === "file" && isImagePath(node.file) ? {} : { fontSize: look.fontSize, fontFamily: look.fontFamily };
+    const textless = (node.type === "file" && isImagePath(node.file)) || (isStroke(node) && !isClosed(node));
+    const part: Partial<NodeLook> = textless ? {} : { fontSize: look.fontSize, fontFamily: look.fontFamily };
     if (kind !== "text") part.strokeWidth = look.strokeWidth;
-    if (kind !== "text" && kind !== "card") Object.assign(part, { shape: look.shape, fill: look.fill });
+    if (kind !== "text" && kind !== "card" && kind !== "draw") Object.assign(part, { shape: look.shape, fill: look.fill });
+    if (isClosed(node)) part.fill = look.fill;
     const given = Object.fromEntries(Object.entries(part).filter(([, v]) => v !== undefined));
     if (!Object.keys(given).length) continue;
     setNodeLook(node, given);
@@ -879,20 +974,6 @@ function setSelectedDrawingStyle(name: DrawingStyleName): void {
     if (element && !isLocked(element)) setDrawingStyle(element, name, canvasStyle());
   }
   commit();
-}
-
-/** Switches the canvas to the next drawing style. Its elements with a style of their own keep theirs. */
-function cycleCanvasStyle(): void {
-  const names = DRAWING_STYLE_NAMES;
-  data.style = names[(names.indexOf(canvasStyle()) + 1) % names.length];
-  commit();
-}
-
-function updateCanvasStyleButton(): void {
-  const button = document.getElementById("canvas-style")!;
-  const style = canvasStyle();
-  button.innerHTML = drawingStyleIcon(style);
-  button.title = `Drawing style of this canvas: ${title(style)} (click to change)`;
 }
 
 /** Sets part of the look of the selected edges, and of new ones. */
@@ -1012,6 +1093,11 @@ function moveCardsTo(cards: CanvasNode[], place: Rect[]): void {
       m.x += dx;
       m.y += dy;
     }
+    // A connection carried whole by a group keeps its bends in place along it.
+    const inside = new Set([n.id, ...carried.map((c) => c.id)]);
+    for (const e of data.edges) {
+      if (!isLocked(e) && inside.has(e.fromNode) && inside.has(e.toNode)) setBends(e, bendsOf(e).map((q) => ({ x: q.x + dx, y: q.y + dy })));
+    }
   });
   if (moved.size) commit();
 }
@@ -1029,9 +1115,11 @@ function distributeSelection(axis: "horizontal" | "vertical"): void {
 
 /** Moves the selected cards in the layer order. Groups move only among groups. */
 function reorderSelection(op: LayerOp): void {
-  const next = reorder(data.nodes, selection, op);
-  if (next.every((n, i) => n === data.nodes[i])) return;
-  data.nodes = next;
+  // Points are not drawn, so a step forward or back passes them by: they go last.
+  const cards = data.nodes.filter((n) => !isPoint(n));
+  const next = reorder(cards, selection, op);
+  if (next.every((n, i) => n === cards[i])) return;
+  data.nodes = [...next, ...data.nodes.filter(isPoint)];
   commit();
 }
 
@@ -1052,13 +1140,15 @@ function setColor(color: string): void {
 
 // ---------------------------------------------------------------- copy and paste
 
+function selectionFragment(): { nodes: CanvasNode[]; edges: CanvasEdge[] } | undefined {
+  return copyFragment(data, selection);
+}
+
 function copySelection(): string | undefined {
-  const nodes = selectedNodes();
-  if (nodes.length === 0) return undefined;
-  const ids = new Set(nodes.map((n) => n.id));
-  const edges = data.edges.filter((e) => ids.has(e.fromNode) && ids.has(e.toNode));
-  clipboard = structuredClone({ nodes, edges });
-  return serializeCanvas({ nodes, edges });
+  const fragment = selectionFragment();
+  if (!fragment) return undefined;
+  clipboard = structuredClone(fragment);
+  return serializeCanvas(fragment);
 }
 
 function paste(fragment: { nodes: CanvasNode[]; edges: CanvasEdge[] }, at: Point): void {
@@ -1068,13 +1158,16 @@ function paste(fragment: { nodes: CanvasNode[]; edges: CanvasEdge[] }, at: Point
   const dy = snap(at.y - (b.y + b.height / 2), GRID);
   const map = new Map<string, string>();
   selection.clear();
+  const points = new Set<string>();
   for (const n of fragment.nodes) {
     const copy = { ...structuredClone(n), id: newId(), x: n.x + dx, y: n.y + dy };
     setLocked(copy, false);
     map.set(n.id, copy.id);
     if (copy.type === "group") data.nodes.unshift(copy);
     else data.nodes.push(copy);
-    selection.add(copy.id);
+    // A point is never selected; its connection is, below.
+    if (isPoint(copy)) points.add(copy.id);
+    else selection.add(copy.id);
   }
   for (const e of fragment.edges) {
     const from = map.get(e.fromNode);
@@ -1082,7 +1175,9 @@ function paste(fragment: { nodes: CanvasNode[]; edges: CanvasEdge[] }, at: Point
     if (!from || !to) continue;
     const copy = { ...structuredClone(e), id: newId(), fromNode: from, toNode: to };
     setLocked(copy, false);
+    setBends(copy, bendsOf(e).map((q) => ({ x: q.x + dx, y: q.y + dy })));
     data.edges.push(copy);
+    if (points.has(from) || points.has(to)) selection.add(copy.id);
   }
   commit();
 }
@@ -1113,7 +1208,7 @@ function startEditing(id: string): void {
   const el = nodeElement(id);
   if (!node || !el || isLocked(node)) return;
   if (node.type === "group") return renameGroup(id);
-  if (node.type === "file") return;
+  if (node.type === "file" || (isStroke(node) && !isClosed(node))) return;
   editing = id;
   updateColorbar();
   const field = document.createElement("textarea");
@@ -1231,12 +1326,34 @@ function editEdgeLabel(id: string): void {
 type Drag =
   | { kind: "pan"; start: Point; view: View }
   | { kind: "marquee"; start: Point; additive: Set<string> }
-  | { kind: "move"; start: Point; nodes: { node: CanvasNode; x: number; y: number }[]; moved: boolean; clickedId: string; bounds: Rect; others: Rect[] }
+  | {
+      kind: "move";
+      start: Point;
+      nodes: { node: CanvasNode; x: number; y: number }[];
+      /** Connections whose bends move along, with their bends at the start. */
+      bends: { edge: CanvasEdge; points: Point[] }[];
+      /** Where the element that snaps to the grid started. */
+      lead: Point;
+      moved: boolean;
+      clickedId: string;
+      bounds: Rect;
+      others: Rect[];
+    }
   | { kind: "resize"; start: Point; node: CanvasNode; x: number; y: number; width: number; height: number; dx: Pull; dy: Pull; anchor: Point; scale: number; others: Rect[] }
   | { kind: "resize-many"; from: Rect; dx: Pull; dy: Pull; items: { node: CanvasNode; rect: Rect; scale: number }[]; others: Rect[]; changed: boolean }
   | { kind: "rotate"; node: CanvasNode; center: Point; startAngle: number; rotation: number }
   | { kind: "connect"; from: CanvasNode; side: Side; preview: SVGPathElement }
+  /** An end handle of a selected connection, dragged to another card or to empty space. */
+  | { kind: "rebind"; edge: CanvasEdge; end: "from" | "to"; preview: SVGPathElement }
+  /** A bend handle of a selected connection. */
+  | { kind: "bend"; edge: CanvasEdge; index: number; moved: boolean }
+  /** The arrow or line tool: from a pointer down on a card or the canvas. `drawing` once it moved 10 screen pixels. */
+  | { kind: "edge"; start: Point; from: CanvasNode | undefined; client: Point; drawing: boolean; heads: "arrow" | "line"; preview: SVGPathElement }
   | { kind: "draw"; start: Point; shape: ShapeKind; preview: HTMLElement }
+  /** The pen: the pointer's path in canvas coordinates. */
+  | { kind: "pen"; points: Point[]; preview: SVGPathElement }
+  /** The eraser: the strokes it touched so far, and where the pointer was last. */
+  | { kind: "erase"; ids: Set<string>; last: Point; lines: EdgeLine[] }
   | { kind: "text"; start: Point };
 
 let drag: Drag | null = null;
@@ -1269,7 +1386,7 @@ viewport.addEventListener("pointerdown", (e) => {
     const scaled = new Map<string, CanvasNode>();
     for (const n of selectedNodes()) {
       scaled.set(n.id, n);
-      if (n.type === "group") for (const c of childrenOf(n)) scaled.set(c.id, c);
+      if (n.type === "group") for (const c of childrenOf(n)) if (!isPoint(c)) scaled.set(c.id, c);
     }
     // A locked card stops the scaling; one inside a selected group goes along, as it does when the group moves.
     if (selectedNodes().some(isLocked)) return;
@@ -1283,6 +1400,26 @@ viewport.addEventListener("pointerdown", (e) => {
       others: snapCandidates(new Set(scaled.keys())),
       changed: false,
     };
+    viewport.setPointerCapture(e.pointerId);
+    return;
+  }
+
+  const endHandle = target.closest<HTMLElement>(".end-handle");
+  const handled = endHandle && edgeById(endHandle.dataset.id!);
+  if (handled && !isLocked(handled)) {
+    const preview = document.createElementNS(SVG_NS, "path");
+    preview.classList.add("preview");
+    edgesLayer.append(preview);
+    world.querySelector(`.edge[data-id="${CSS.escape(handled.id)}"]`)?.classList.add("rebinding");
+    drag = { kind: "rebind", edge: handled, end: endHandle.dataset.end as "from" | "to", preview };
+    viewport.setPointerCapture(e.pointerId);
+    return;
+  }
+
+  const bendHandle = target.closest<HTMLElement>(".bend-handle");
+  const bent = bendHandle && edgeById(bendHandle.dataset.id!);
+  if (bent && !isLocked(bent)) {
+    drag = { kind: "bend", edge: bent, index: Number(bendHandle.dataset.index), moved: false };
     viewport.setPointerCapture(e.pointerId);
     return;
   }
@@ -1343,31 +1480,15 @@ viewport.addEventListener("pointerdown", (e) => {
       selection.clear();
       selection.add(node.id);
     }
-    // Locked cards stay put; a group that moves carries every card inside it, locked or not.
-    const moving = new Map<string, CanvasNode>();
-    for (const n of selectedNodes()) {
-      if (isLocked(n)) continue;
-      moving.set(n.id, n);
-      if (n.type === "group") for (const c of childrenOf(n)) moving.set(c.id, c);
-    }
-    const movingNodes = [...moving.values()];
-    drag = {
-      kind: "move",
-      start: p,
-      nodes: movingNodes.map((n) => ({ node: n, x: n.x, y: n.y })),
-      moved: false,
-      clickedId: node.id,
-      bounds: boundsOf(movingNodes.map(outlineOf)) ?? { ...p, width: 0, height: 0 },
-      others: snapCandidates(new Set(moving.keys())),
-    };
-    viewport.setPointerCapture(e.pointerId);
-    showSelection();
+    startMove(e, p, node.id);
     return;
   }
 
   const edgeEl = target.closest<HTMLElement | SVGElement>(".edge, .edge-label");
   if (edgeEl) {
     const id = (edgeEl as HTMLElement).dataset.id!;
+    // A selected connection dragged by its line moves the whole selection.
+    if (selection.has(id)) return startMove(e, p, id);
     if (!e.shiftKey) selection.clear();
     selection.add(id);
     showSelection();
@@ -1377,13 +1498,132 @@ viewport.addEventListener("pointerdown", (e) => {
   startMarquee(e, p);
 });
 
+/**
+ * What moves with the selection: its unlocked cards, the cards inside a moved group, locked or not
+ * (ADR 0001), and the free ends and bends of the unlocked connections in it or among what moves.
+ */
+function movingSelection(): { nodes: CanvasNode[]; edges: CanvasEdge[] } {
+  const moving = new Map<string, CanvasNode>();
+  for (const n of selectedNodes()) {
+    if (isLocked(n)) continue;
+    moving.set(n.id, n);
+    if (n.type === "group") for (const c of childrenOf(n)) moving.set(c.id, c);
+  }
+  const edges = data.edges.filter((e) => !isLocked(e) && selection.has(e.id));
+  for (const p of pointsOfEdges(data, edges.map((e) => e.id), true)) moving.set(p.id, p);
+  for (const e of data.edges) {
+    if (!isLocked(e) && !selection.has(e.id) && moving.has(e.fromNode) && moving.has(e.toNode)) edges.push(e);
+  }
+  return { nodes: [...moving.values()], edges: edges.filter((e) => bendsOf(e).length) };
+}
+
+function startMove(e: PointerEvent, p: Point, clickedId: string): void {
+  const { nodes, edges } = movingSelection();
+  const bends = edges.map((edge) => ({ edge, points: bendsOf(edge) }));
+  const lead = nodes.find((n) => n.id === clickedId) ?? nodes[0];
+  drag = {
+    kind: "move",
+    start: p,
+    nodes: nodes.map((n) => ({ node: n, x: n.x, y: n.y })),
+    bends,
+    // A free end snaps by its spot, a card by its corner.
+    lead: lead ? (isPoint(lead) ? center(lead) : { x: lead.x, y: lead.y }) : (bends[0]?.points[0] ?? p),
+    moved: false,
+    clickedId,
+    bounds: boundsOf([...nodes.map(outlineOf), ...bends.flatMap((b) => b.points.map((q) => ({ ...q, width: 0, height: 0 })))]) ?? { ...p, width: 0, height: 0 },
+    others: snapCandidates(new Set(nodes.map((n) => n.id))),
+  };
+  viewport.setPointerCapture(e.pointerId);
+  showSelection();
+}
+
 // ---------------------------------------------------------------- tools: text and shapes
 
 let tool: Tool = SELECT;
 
 function setTool(next: Tool): void {
+  if (pinned) dropPinned();
   tool = next;
   showTool(toolbar, viewport, tool);
+}
+
+// ---------------------------------------------------------------- tools: pinned lines
+
+/** A line pinned by clicks with the arrow or line tool, open until it ends. Each pin after the start is a bend, the last one its end. */
+interface Pinned {
+  start: Point;
+  from: CanvasNode | undefined;
+  pins: { at: Point; card: CanvasNode | undefined }[];
+  heads: "arrow" | "line";
+  preview: SVGPathElement;
+}
+
+let pinned: Pinned | null = null;
+/** When the last pinned line ended: the double-click that ends one must not also add text or a label. */
+let pinnedEndedAt = 0;
+
+/** How near, in screen pixels, a click must come to the last pin to end the line there. */
+const PIN_PX = 6;
+
+function lastPin(line: Pinned): Point {
+  return line.pins[line.pins.length - 1]?.at ?? line.start;
+}
+
+/** A click with a pinned line open: pins a bend, or ends the line on its last pin. */
+function pinAt(e: PointerEvent, p: Point): void {
+  const line = pinned!;
+  const last = lastPin(line);
+  // With three pins or more, a click near the first one closes the line into a custom shape.
+  if (line.pins.length >= 2 && Math.hypot(p.x - line.start.x, p.y - line.start.y) * view.zoom <= 12) return closePinned();
+  if (Math.hypot(p.x - last.x, p.y - last.y) * view.zoom <= PIN_PX) return endPinned();
+  const card = nodeUnder(e.clientX, e.clientY);
+  line.pins.push({ at: card ? p : freeEndAt(last, p, e), card });
+  showPinned(p, e);
+}
+
+/** The open line from its start through its pins to the pointer. */
+function showPinned(p: Point, e: { shiftKey: boolean; altKey: boolean }): void {
+  const line = pinned!;
+  const last = lastPin(line);
+  const pointer = freeEndAt(last, p, e);
+  const bends = line.pins.map((pin) => pin.at);
+  const start = endGeometry(drawnEnd(line.from, line.start, bends[0] ?? pointer)).at;
+  line.preview.setAttribute("d", bentPath([start, ...bends, pointer], edgeDefaults.pathStyle ?? "curved").d);
+}
+
+/** Ends the open line at its last pin. With only its start pinned it makes nothing. */
+function endPinned(): void {
+  const line = pinned!;
+  dropPinned();
+  pinnedEndedAt = performance.now();
+  const end = line.pins[line.pins.length - 1];
+  if (!end) return;
+  const bends = line.pins.slice(0, -1).map((pin) => pin.at);
+  const a = drawnEnd(line.from, line.start, bends[0] ?? end.at);
+  const from = endGeometry(a).at;
+  const card = end.card && end.card.id !== line.from?.id ? end.card : undefined;
+  const b = drawnEnd(card, end.at, bends[bends.length - 1] ?? from);
+  addDrawnEdge(a, b, line.heads, bends);
+}
+
+/** Turns the open line into a custom shape with straight sides, through its pins and back to its start. No connection. */
+function closePinned(): void {
+  const line = pinned!;
+  dropPinned();
+  pinnedEndedAt = performance.now();
+  const { box, points } = strokeBox([line.start, ...line.pins.map((pin) => pin.at), line.start]);
+  const node: CanvasNode = { id: newId(), type: "text", text: "", shape: "draw", sharp: true, ...box };
+  setStrokePoints(node, points);
+  setClosed(node, true);
+  applyNodeDefaults(node);
+  setTool(SELECT);
+  addNode(node);
+}
+
+/** Drops the open line without making anything. */
+function dropPinned(): void {
+  pinned?.preview.remove();
+  pinned = null;
 }
 
 /** With a tool picked, a click places text; a click or a drag places a shape. */
@@ -1394,12 +1634,69 @@ function startPlacing(e: PointerEvent, p: Point): void {
     viewport.setPointerCapture(e.pointerId);
     return;
   }
+  if (tool.kind === "pen") {
+    const preview = document.createElementNS(SVG_NS, "path");
+    preview.classList.add("pen-preview");
+    const color = cssColor(nodeDefaults.color);
+    if (color) preview.style.stroke = color;
+    preview.style.strokeWidth = `${WIDTHS[nodeDefaults.strokeWidth ?? "normal"]}px`;
+    penLayer.append(preview);
+    drag = { kind: "pen", points: [p], preview };
+    viewport.setPointerCapture(e.pointerId);
+    return;
+  }
+  if (tool.kind === "eraser") {
+    drag = { kind: "erase", ids: new Set(), last: p, lines: edgeLines() };
+    erase(drag, [p]);
+    viewport.setPointerCapture(e.pointerId);
+    return;
+  }
+  if (tool.kind === "connection" && pinned) return pinAt(e, p);
+  if (tool.kind === "connection") {
+    const preview = document.createElementNS(SVG_NS, "path");
+    preview.classList.add("preview");
+    edgesLayer.append(preview);
+    const from = nodeUnder(e.clientX, e.clientY);
+    const start = from || e.altKey ? p : { x: snap(p.x, GRID), y: snap(p.y, GRID) };
+    drag = { kind: "edge", start, from, client: { x: e.clientX, y: e.clientY }, drawing: false, heads: tool.heads, preview };
+    viewport.setPointerCapture(e.pointerId);
+    return;
+  }
   if (tool.kind !== "shape") return;
   const preview = document.createElement("div");
   preview.className = "draw-preview";
   nodesLayer.append(preview);
   drag = { kind: "draw", start: p, shape: tool.shape, preview };
   viewport.setPointerCapture(e.pointerId);
+}
+
+/** How near, in screen pixels, the eraser must pass a stroke to take it. */
+const ERASE_PX = 8;
+
+/** Each connection's line as drawn, in short steps, for the eraser. */
+function edgeLines(): EdgeLine[] {
+  return data.edges.flatMap((edge) => {
+    const path = world.querySelector<SVGPathElement>(`.edge[data-id="${CSS.escape(edge.id)}"] .hit`);
+    if (!path) return [];
+    const length = path.getTotalLength();
+    const steps = Math.max(1, Math.ceil(length / 8));
+    const points = Array.from({ length: steps + 1 }, (_, k) => {
+      const q = path.getPointAtLength((length * k) / steps);
+      return { x: q.x, y: q.y };
+    });
+    return [{ id: edge.id, points, locked: isLocked(edge) }];
+  });
+}
+
+/** Fades what the eraser's path touches; it goes when the eraser is released. */
+function erase(d: { ids: Set<string>; lines: EdgeLine[] }, path: Point[]): void {
+  // A locked connection cannot go, so neither can a card it holds.
+  const held = new Set(data.edges.filter(isLocked).flatMap((e) => [e.fromNode, e.toNode]));
+  for (const id of touched(data.nodes, d.lines, path, ERASE_PX / view.zoom)) {
+    if (held.has(id) || d.ids.has(id)) continue;
+    d.ids.add(id);
+    world.querySelectorAll(`[data-id="${CSS.escape(id)}"]`).forEach((el) => el.classList.add("fading"));
+  }
 }
 
 /** The direction from `c` to `p`, in degrees clockwise from straight up. */
@@ -1430,7 +1727,7 @@ function shifted(r: Rect, dx: number, dy: number): Rect {
 function snapCandidates(moving: Set<string>): Rect[] {
   const r = viewport.getBoundingClientRect();
   const area = rectFromPoints(toWorld(r.left - r.width, r.top - r.height), toWorld(r.right + r.width, r.bottom + r.height));
-  return data.nodes.filter((n) => !moving.has(n.id)).map(outlineOf).filter((b) => rectsIntersect(b, area));
+  return data.nodes.filter((n) => !moving.has(n.id) && !isPoint(n)).map(outlineOf).filter((b) => rectsIntersect(b, area));
 }
 
 function showGuides(guides: Guide[]): void {
@@ -1453,6 +1750,7 @@ function startMarquee(e: PointerEvent, p: Point): void {
 
 viewport.addEventListener("pointermove", (e) => {
   lastPointer = { x: e.clientX, y: e.clientY };
+  if (pinned && !drag) showPinned(toWorld(e.clientX, e.clientY), e);
   if (!drag) return;
   const p = toWorld(e.clientX, e.clientY);
   switch (drag.kind) {
@@ -1472,7 +1770,7 @@ viewport.addEventListener("pointermove", (e) => {
       selection.clear();
       drag.additive.forEach((id) => selection.add(id));
       for (const n of data.nodes) {
-        if (!isLocked(n) && rectsIntersect(r, n) && (n.type !== "group" || containsRect(r, n))) selection.add(n.id);
+        if (!isLocked(n) && !isPoint(n) && rectsIntersect(r, n) && (n.type !== "group" || containsRect(r, n))) selection.add(n.id);
       }
       showSelection();
       break;
@@ -1480,13 +1778,12 @@ viewport.addEventListener("pointermove", (e) => {
     case "move": {
       let dx = p.x - drag.start.x;
       let dy = p.y - drag.start.y;
-      if (!drag.nodes.length || (!drag.moved && Math.hypot(dx, dy) * view.zoom < 3)) return;
+      if ((!drag.nodes.length && !drag.bends.length) || (!drag.moved && Math.hypot(dx, dy) * view.zoom < 3)) return;
       drag.moved = true;
       if (!e.altKey) {
         // Snap to the cards nearby; on an axis with none, snap the clicked card to the grid and keep the others' offsets to it.
         const s = snapGuides(shifted(drag.bounds, dx, dy), drag.others, SNAP_PX / view.zoom);
-        const clicked = drag.clickedId;
-        const lead = drag.nodes.find((m) => m.node.id === clicked) ?? drag.nodes[0]!;
+        const lead = drag.lead;
         dx = s.dx !== undefined ? dx + s.dx : snap(lead.x + dx, GRID) - lead.x;
         dy = s.dy !== undefined ? dy + s.dy : snap(lead.y + dy, GRID) - lead.y;
         showGuides(snapGuides(shifted(drag.bounds, dx, dy), drag.others, 0.01).guides);
@@ -1499,7 +1796,9 @@ viewport.addEventListener("pointermove", (e) => {
         const el = nodeElement(m.node.id);
         if (el) placeNode(el, m.node);
       }
+      for (const b of drag.bends) setBends(b.edge, b.points.map((q) => ({ x: q.x + dx, y: q.y + dy })));
       redrawEdgesOf(new Set(drag.nodes.map((m) => m.node.id)));
+      drag.bends.forEach((b) => redrawEdge(b.edge));
       updateSelectionBox();
       break;
     }
@@ -1580,9 +1879,10 @@ viewport.addEventListener("pointermove", (e) => {
         }
       }
       showGuides(guides);
-      w = Math.max(freeText ? 30 : 60, w);
+      // A stroke can be as thin as a line.
+      w = Math.max(isStroke(n) ? 1 : freeText ? 30 : 60, w);
       // Free text is never cut off: it is at least as tall as its wrapped text.
-      const minH = isFreeText(n) ? measureText(n, renderMarkdown(n.text), w).height : 40;
+      const minH = isFreeText(n) ? measureText(n, renderMarkdown(n.text), w).height : isStroke(n) ? 1 : 40;
       h = Math.max(minH, h);
       const corner = resizedCorner(drag.anchor, w, h, dx, dy, turn);
       Object.assign(n, { width: w, height: h, x: corner.x, y: corner.y });
@@ -1600,6 +1900,16 @@ viewport.addEventListener("pointermove", (e) => {
       redrawEdgesOf(new Set([drag.node.id]));
       break;
     }
+    case "erase":
+      erase(drag, [drag.last, p]);
+      drag.last = p;
+      break;
+    case "pen": {
+      // Every point the pointer passed, not only the ones this event reports.
+      for (const ev of e.getCoalescedEvents?.() ?? [e]) drag.points.push(toWorld(ev.clientX, ev.clientY));
+      drag.preview.setAttribute("d", smoothPath(drag.points));
+      break;
+    }
     case "draw": {
       const r = drawRect(drag.start, p, e.altKey);
       Object.assign(drag.preview.style, { left: `${r.x}px`, top: `${r.y}px`, width: `${r.width}px`, height: `${r.height}px` });
@@ -1607,6 +1917,34 @@ viewport.addEventListener("pointermove", (e) => {
         r.width > 4 && r.height > 4
           ? `<svg viewBox="0 0 ${r.width} ${r.height}" width="${r.width}" height="${r.height}"><path d="${shapePath(drag.shape, r.width, r.height, 2)}"/></svg>`
           : "";
+      break;
+    }
+    case "edge": {
+      if (!drag.drawing && Math.hypot(e.clientX - drag.client.x, e.clientY - drag.client.y) < 10) break;
+      drag.drawing = true;
+      const { a, b, over } = drawnEnds(drag, e, p);
+      const ga = endGeometry(a);
+      const gb = endGeometry(b);
+      drag.preview.setAttribute("d", edgePath(ga.at, ga.side, gb.at, gb.side, edgeDefaults.pathStyle).d);
+      world.querySelectorAll(".node.drop-target").forEach((el) => el.classList.remove("drop-target"));
+      if (over) nodeElement(over.id)?.classList.add("drop-target");
+      break;
+    }
+    case "bend": {
+      const bends = bendsOf(drag.edge);
+      bends[drag.index] = e.altKey ? p : { x: snap(p.x, GRID), y: snap(p.y, GRID) };
+      setBends(drag.edge, bends);
+      drag.moved = true;
+      redrawEdge(drag.edge);
+      break;
+    }
+    case "rebind": {
+      const { target, other } = rebindTarget(drag, e, p);
+      const moved = "node" in target ? endOf(nodeById(target.node)!, target.side, other.at) : { at: target.at, side: null };
+      const [a, b] = drag.end === "from" ? [moved, other] : [other, moved];
+      drag.preview.setAttribute("d", edgePath(a.at, a.side, b.at, b.side, edgeStyle(drag.edge).pathStyle).d);
+      world.querySelectorAll(".node.drop-target").forEach((el) => el.classList.remove("drop-target"));
+      if ("node" in target) nodeElement(target.node)?.classList.add("drop-target");
       break;
     }
     case "connect": {
@@ -1624,11 +1962,79 @@ viewport.addEventListener("pointermove", (e) => {
   }
 });
 
+/** One end of a connection being drawn: on a card, at a side, or free at a point. */
+type DrawnEnd = { card: CanvasNode; side: Side } | { card?: undefined; at: Point };
+
+/** The end on `card`, by the side under `at` (or facing `other` near its center), else free at `at`. */
+function drawnEnd(card: CanvasNode | undefined, at: Point, other: Point): DrawnEnd {
+  return card ? { card, side: facingSide(card, nearCenter(card, at) ? other : at) } : { at };
+}
+
+function endGeometry(end: DrawnEnd): { at: Point; side: Side | null } {
+  return end.card ? { at: nodeAnchor(end.card, end.side), side: turnedSide(end.side, rotationOf(end.card)) } : { at: end.at, side: null };
+}
+
+/** A free end at the pointer: on the grid, at 15° steps from `from` with Shift, anywhere with Alt. */
+function freeEndAt(from: Point, p: Point, e: { shiftKey: boolean; altKey: boolean }): Point {
+  if (e.shiftKey) return snapAngle(from, p, 15);
+  return e.altKey ? p : { x: snap(p.x, GRID), y: snap(p.y, GRID) };
+}
+
+/** Both ends of a connection drawn with the arrow or line tool, and the card the pointer is over. */
+function drawnEnds(d: { start: Point; from: CanvasNode | undefined }, e: PointerEvent, p: Point) {
+  const under = nodeUnder(e.clientX, e.clientY);
+  const over = under && under.id !== d.from?.id ? under : undefined;
+  const a = drawnEnd(d.from, d.start, p);
+  const from = endGeometry(a).at;
+  const b = drawnEnd(over, over ? p : freeEndAt(from, p, e), from);
+  return { a, b, over };
+}
+
+/** Where a dragged end handle lands, and the end that stays. On the card at the other end it stays where it was. */
+function rebindTarget(d: { edge: CanvasEdge; end: "from" | "to" }, e: PointerEvent, p: Point) {
+  const [otherId, otherSide] = d.end === "from" ? [d.edge.toNode, d.edge.toSide] : [d.edge.fromNode, d.edge.fromSide];
+  const otherNode = nodeById(otherId)!;
+  const other = endOf(otherNode, otherSide, p);
+  const under = nodeUnder(e.clientX, e.clientY);
+  const onOther = under?.id === otherId;
+  const end = drawnEnd(onOther ? undefined : under, under ? p : freeEndAt(other.at, p, e), other.at);
+  const target: EndTarget = end.card ? { node: end.card.id, side: end.side } : { at: end.at };
+  return { target, other, onOther };
+}
+
+/** Adds a connection drawn with the arrow or line tool, in the edge style picked last, and selects it. One commit. */
+function addDrawnEdge(a: DrawnEnd, b: DrawnEnd, heads: "arrow" | "line", bends: Point[]): void {
+  const from = endNode(a);
+  const to = endNode(b);
+  const edge: CanvasEdge = { id: newId(), fromNode: from.id, toNode: to.id };
+  if (from.side) edge.fromSide = from.side;
+  if (to.side) edge.toSide = to.side;
+  setBends(edge, bends);
+  setEdgeStyle(edge, edgeDefaults);
+  // The line tool draws no heads; the arrow tool always one at the end.
+  if (heads === "line") setEdgeStyle(edge, { fromHead: "none", toHead: "none" });
+  else if (edgeStyle(edge).toHead === "none") setEdgeStyle(edge, { toHead: "arrow" });
+  data.edges.push(edge);
+  setTool(SELECT);
+  selection.clear();
+  selection.add(edge.id);
+  commit();
+}
+
+/** The node an end names in the file: its card, or a new point. */
+function endNode(end: DrawnEnd): { id: string; side?: Side } {
+  if (end.card) return { id: end.card.id, side: end.side };
+  const point = pointNodeAt(end.at);
+  data.nodes.push(point);
+  return { id: point.id };
+}
+
 /** Dropped in the middle of a card: join it by the side that faces the edge's start instead. */
 function nearCenter(node: CanvasNode, p: Point): boolean {
   return Math.abs(p.x - (node.x + node.width / 2)) < node.width / 4 && Math.abs(p.y - (node.y + node.height / 2)) < node.height / 4;
 }
 
+/** The card under a screen point. Points are never drawn, so never under it. */
 function nodeUnder(clientX: number, clientY: number): CanvasNode | undefined {
   for (const el of document.elementsFromPoint(clientX, clientY)) {
     const nodeEl = (el as HTMLElement).closest?.(".node") as HTMLElement | null;
@@ -1671,6 +2077,7 @@ function endDrag(e: PointerEvent): void {
         commit();
       } else if (d.node.width !== d.width || d.node.height !== d.height) {
         if (isFreeText(d.node) && d.node.width !== d.width) d.node.autoSize = false;
+        if (isStroke(d.node)) setStrokePoints(d.node, scalePoints(strokePoints(d.node), d, d.node));
         commit();
       }
       break;
@@ -1685,6 +2092,7 @@ function endDrag(e: PointerEvent): void {
     case "resize-many":
       if (!d.changed) break;
       for (const { node, rect } of d.items) {
+        if (isStroke(node)) setStrokePoints(node, scalePoints(strokePoints(node), rect, node));
         if (!isFreeText(node)) continue;
         // Stretched more one way than the other, it keeps its new width and wraps, as after a single resize.
         if (Math.abs(node.width / rect.width - node.height / rect.height) > 0.01) node.autoSize = false;
@@ -1692,6 +2100,31 @@ function endDrag(e: PointerEvent): void {
       }
       commit();
       break;
+    case "erase": {
+      if (!d.ids.size) break;
+      // A card's connections go with it; a locked one kept its card from being touched.
+      data.nodes = data.nodes.filter((n) => !d.ids.has(n.id));
+      data.edges = data.edges.filter((e) => !d.ids.has(e.id) && !d.ids.has(e.fromNode) && !d.ids.has(e.toNode));
+      for (const id of d.ids) selection.delete(id);
+      commit();
+      break;
+    }
+    case "pen": {
+      d.preview.remove();
+      const drawn = simplify(d.points, 1 / view.zoom);
+      // Ends that meet close the stroke into a custom shape: the last point joins the first.
+      const closed = closes(drawn, 12 / view.zoom, 16 / view.zoom);
+      if (closed) drawn[drawn.length - 1] = { ...drawn[0]! };
+      const { box, points } = strokeBox(drawn);
+      const node: CanvasNode = { id: newId(), type: "text", text: "", shape: "draw", ...box };
+      setStrokePoints(node, points);
+      setClosed(node, closed);
+      applyNodeDefaults(node);
+      // The pen stays: each stroke is its own card and its own undo step.
+      data.nodes.push(node);
+      commit();
+      break;
+    }
     case "draw": {
       d.preview.remove();
       let r = drawRect(d.start, p, e.altKey);
@@ -1720,25 +2153,49 @@ function endDrag(e: PointerEvent): void {
       world.querySelectorAll(".node.drop-target").forEach((el) => el.classList.remove("drop-target"));
       const over = nodeUnder(e.clientX, e.clientY);
       if (over && over.id === d.from.id) break;
-      let target = over;
-      if (!target) {
-        // Dropped on the empty canvas: a new card there, as in Obsidian.
-        target = textNodeAt(p);
-        data.nodes.push(target);
-        editing = target.id;
+      const edge: CanvasEdge = { id: newId(), fromNode: d.from.id, fromSide: d.side, toNode: "" };
+      selection.clear();
+      selection.add(edge.id);
+      if (!over && e.altKey) {
+        // Dropped on the empty canvas with Alt: a new card there, as in Obsidian.
+        const card = textNodeAt(p);
+        data.nodes.push(card);
+        editing = card.id;
+        Object.assign(edge, { toNode: card.id, toSide: facingSide(card, nodeAnchor(d.from, d.side)) });
+        selection.clear();
+        selection.add(card.id);
+      } else {
+        // On a card it binds; on the empty canvas the end stays free.
+        const to = endNode(drawnEnd(over, p, nodeAnchor(d.from, d.side)));
+        Object.assign(edge, { toNode: to.id, toSide: to.side });
+        if (!to.side) delete edge.toSide;
       }
-      const edge: CanvasEdge = {
-        id: newId(),
-        fromNode: d.from.id,
-        fromSide: d.side,
-        toNode: target.id,
-        toSide: facingSide(target, over && !nearCenter(over, p) ? p : nodeAnchor(d.from, d.side)),
-      };
       setEdgeStyle(edge, edgeDefaults);
       data.edges.push(edge);
-      selection.clear();
-      selection.add(over ? edge.id : target.id);
       commit();
+      break;
+    }
+    case "rebind": {
+      d.preview.remove();
+      world.querySelectorAll(".node.drop-target").forEach((el) => el.classList.remove("drop-target"));
+      const { target, onOther } = rebindTarget(d, e, p);
+      if (!onOther && rebind(data, d.edge.id, d.end, target)) commit();
+      else render();
+      break;
+    }
+    case "bend":
+      if (d.moved) commit();
+      break;
+    case "edge": {
+      world.querySelectorAll(".node.drop-target").forEach((el) => el.classList.remove("drop-target"));
+      if (!d.drawing) {
+        // A click, not a drag: the start is pinned, and the line stays open for more pins.
+        pinned = { start: d.start, from: d.from, pins: [], heads: d.heads, preview: d.preview };
+        break;
+      }
+      d.preview.remove();
+      const { a, b } = drawnEnds(d, e, p);
+      addDrawnEdge(a, b, d.heads, []);
       break;
     }
   }
@@ -1748,7 +2205,7 @@ viewport.addEventListener("pointerup", endDrag);
 viewport.addEventListener("pointercancel", endDrag);
 
 viewport.addEventListener("dblclick", (e) => {
-  if (tool.kind !== "select") return;
+  if (tool.kind !== "select" || performance.now() - pinnedEndedAt < 600) return;
   // Pointer capture makes the event's own target the viewport: look at what is under the pointer.
   const target = (document.elementFromPoint(e.clientX, e.clientY) ?? e.target) as HTMLElement;
   if (target.closest(".editor, .inline-input, .link-open")) return;
@@ -1795,6 +2252,18 @@ document.addEventListener("keydown", (e) => {
   if (!loaded || (e.target as HTMLElement).closest?.("input, textarea, [contenteditable]")) return;
   const is = (id: string) => matchesShortcut(id, e);
   const key = e.key.toLowerCase();
+  if (pinned) {
+    // Enter or Escape ends the open line at its last pin. Undo drops it first, then undoes as usual.
+    if (e.key === "Enter" || e.key === "Escape") {
+      e.preventDefault();
+      return endPinned();
+    }
+    // Undo or redo drops the open line and stops there: nothing of it was written yet.
+    if ((e.ctrlKey || e.metaKey) && (key === "z" || key === "y")) {
+      e.preventDefault();
+      return dropPinned();
+    }
+  }
   if (key === " " && !spaceHeld) {
     spaceHeld = true;
     viewport.classList.add("can-pan");
@@ -1824,6 +2293,12 @@ document.addEventListener("keydown", (e) => {
     setTool({ kind: "hand" });
   } else if (is("text")) {
     setTool({ kind: "text" });
+  } else if (is("pen")) {
+    setTool({ kind: "pen" });
+  } else if (is("eraser")) {
+    setTool({ kind: "eraser" });
+  } else if (is("arrow") || is("line")) {
+    setTool({ kind: "connection", heads: is("arrow") ? "arrow" : "line" });
   } else if (is("rectangle") || is("ellipse")) {
     setTool({ kind: "shape", shape: is("rectangle") ? "rectangle" : "ellipse" });
   } else if (is("card")) {
@@ -1881,7 +2356,7 @@ document.addEventListener("contextmenu", (e) => {
   }
   showSelection();
   const selected = [...selection].map((id) => nodeById(id) ?? edgeById(id)).filter((i): i is CanvasNode | CanvasEdge => !!i);
-  openContextMenu(menuItems(selected, !!clipboard), e.clientX, e.clientY, (action) => runMenuAction(action, p));
+  openContextMenu(menuItems(selected, !!clipboard, !!selectionFragment()), e.clientX, e.clientY, (action) => runMenuAction(action, p));
 });
 
 function runMenuAction(action: string, at: Point): void {
@@ -1918,11 +2393,15 @@ function runMenuAction(action: string, at: Point): void {
       return selectAll();
     case "fit":
       return fitToContent();
+    case "exportPng":
+      return requestExport("png");
+    case "exportSvg":
+      return requestExport("svg");
   }
 }
 
 function selectAll(): void {
-  data.nodes.forEach((n) => isLocked(n) || selection.add(n.id));
+  data.nodes.forEach((n) => isLocked(n) || isPoint(n) || selection.add(n.id));
   showSelection();
 }
 
@@ -1930,15 +2409,17 @@ function selectAll(): void {
 function nudge(key: string, step: number): void {
   const dx = key === "arrowleft" ? -step : key === "arrowright" ? step : 0;
   const dy = key === "arrowup" ? -step : key === "arrowdown" ? step : 0;
-  const moved = selectedNodes().filter((n) => !isLocked(n));
-  if (!moved.length) return;
+  const { nodes: moved, edges } = movingSelection();
+  if (!moved.length && !edges.length) return;
   for (const n of moved) {
     n.x += dx;
     n.y += dy;
     const el = nodeElement(n.id);
     if (el) placeNode(el, n);
   }
+  for (const edge of edges) setBends(edge, bendsOf(edge).map((q) => ({ x: q.x + dx, y: q.y + dy })));
   redrawEdgesOf(new Set(moved.map((n) => n.id)));
+  edges.forEach(redrawEdge);
   updateSelectionBox();
   nudged = snapshot();
   nudges.schedule();
@@ -1946,6 +2427,12 @@ function nudge(key: string, step: number): void {
 
 /** Escape closes an open menu first, then goes back to the select tool, then clears the selection. */
 function escape(): void {
+  if (drag?.kind === "erase") {
+    // The eraser lets go: nothing is wiped.
+    world.querySelectorAll(".fading").forEach((el) => el.classList.remove("fading"));
+    drag = null;
+    return;
+  }
   if (isContextMenuOpen()) return closeContextMenu();
   if (isShortcutPanelOpen()) return toggleShortcutPanel(false);
   if (!headMenu.hidden) return closeHeadMenu();
@@ -2139,6 +2626,15 @@ app.addEventListener("click", (e) => {
       return setTool(SELECT);
     case "hand":
       return setTool(tool.kind === "hand" ? SELECT : { kind: "hand" });
+    case "pen-tool":
+      return setTool(tool.kind === "pen" ? SELECT : { kind: "pen" });
+    case "eraser-tool":
+      return setTool(tool.kind === "eraser" ? SELECT : { kind: "eraser" });
+    case "arrow-tool":
+    case "line-tool": {
+      const heads = button.dataset.action === "arrow-tool" ? "arrow" : "line";
+      return setTool(tool.kind === "connection" && tool.heads === heads ? SELECT : { kind: "connection", heads });
+    }
     case "shapes":
       if (tool.kind === "shape") return setTool(SELECT);
       shapeMenu.hidden = !shapeMenu.hidden;
@@ -2163,13 +2659,17 @@ app.addEventListener("click", (e) => {
       return zoomBy(1 / view.zoom);
     case "fit":
       return fitToContent();
-    case "canvas-style":
-      return cycleCanvasStyle();
+    case "export-png":
+      return requestExport("png");
+    case "export-svg":
+      return requestExport("svg");
     case "undo":
       nudges.flush();
+      dropPinned();
       return post({ type: "undo" });
     case "redo":
       nudges.flush();
+      dropPinned();
       return post({ type: "redo" });
     case "help":
       return toggleShortcutPanel();
@@ -2191,14 +2691,81 @@ props.querySelector<HTMLInputElement>("input[type=color]")!.addEventListener("ch
 
 window.addEventListener("resize", () => applyView());
 
+// ---------------------------------------------------------------- export
+
+/** The handwriting font, which an export carries inside itself. */
+const FONT_FILES = ["caveat-400.woff2", "caveat-700.woff2"];
+
+let inlineWaiter: ((data: Record<string, string>) => void) | null = null;
+
+/** Files as data URIs from the host: the webview may not read them itself. */
+function inline(paths: string[]): Promise<Record<string, string>> {
+  return new Promise((resolve) => {
+    inlineWaiter = resolve;
+    post({ type: "inline", paths });
+  });
+}
+
+/** Where an element of the board lies, in canvas coordinates. */
+function worldRectOf(el: HTMLElement): Rect {
+  const r = el.getBoundingClientRect();
+  const topLeft = toWorld(r.left, r.top);
+  return { ...topLeft, width: r.width / view.zoom, height: r.height / view.zoom };
+}
+
+/** Draws the selection, or the whole canvas, as a picture and hands it to the host to save. */
+async function exportCanvas(options: Extract<HostMessage, { type: "export" }>): Promise<void> {
+  nudges.flush();
+  const items = exportItems(data, selection);
+  const boxes: (Rect & { turn?: number })[] = items.nodes.map((n) => ({ x: n.x, y: n.y, width: n.width, height: n.height, turn: rotationOf(n) }));
+  // A group's name sits above its box.
+  for (const n of items.nodes) {
+    const label = n.type === "group" ? nodeElement(n.id)?.querySelector<HTMLElement>(".group-label") : null;
+    if (label?.offsetWidth) boxes.push(worldRectOf(label));
+  }
+  const points: Point[] = [];
+  for (const edge of items.edges) {
+    const geo = edgeGeometry(edge);
+    if (!geo) continue;
+    points.push(geo.start, geo.end, ...bendsOf(edge));
+    // A curve can bow out past its ends, and a label past its line.
+    const line = world.querySelector<SVGGraphicsElement>(`.edge[data-id="${CSS.escape(edge.id)}"] .line`)?.getBBox();
+    if (line) boxes.push({ x: line.x, y: line.y, width: line.width, height: line.height });
+    const label = labelsLayer.querySelector<HTMLElement>(`.edge-label[data-id="${CSS.escape(edge.id)}"]`);
+    if (label) boxes.push(worldRectOf(label));
+  }
+  const b = exportBounds(boxes, points);
+  if (!b) {
+    post({ type: "notify", text: "The canvas is empty: there is nothing to export." });
+    return;
+  }
+  const bounds = { x: Math.floor(b.x), y: Math.floor(b.y), width: Math.ceil(b.width), height: Math.ceil(b.height) };
+  const images = items.nodes.flatMap((n) => (n.type === "file" && files.get(n.file)?.kind === "image" ? [n.file] : []));
+  const fonts = FONT_FILES.map((f) => `extension:webview/fonts/${f}`);
+  const inlined = await inline([...new Set(images), ...fonts]);
+  const css = inlineUrls(boardCss, Object.fromEntries(FONT_FILES.map((f, i) => [`fonts/${f}`, inlined[fonts[i]!] ?? ""])));
+  // VS Code's theme variables sit on the root element; the paper overrides the ones it sets.
+  const rootStyle = document.documentElement.style;
+  const themeVars = [...rootStyle].filter((p) => p.startsWith("--")).map((p) => `${p}: ${rootStyle.getPropertyValue(p)};`).join(" ");
+  const svg = buildSvg(world, items, bounds, options, css, inlined, themeVars);
+  const bytes = options.format === "png" ? await svgToPng(svg, bounds.width, bounds.height, options.scale) : new TextEncoder().encode(svg);
+  post({ type: "exported", format: options.format, base64: toBase64(bytes) });
+}
+
+/** An export button or menu item: the host asks for the options, starting on the paper shown. */
+function requestExport(format: "png" | "svg"): void {
+  post({ type: "exportRequest", format, paper: viewport.dataset.paper === "dark" ? "dark" : "light" });
+}
+
 // ---------------------------------------------------------------- messages from the host
 
 window.addEventListener("message", (e: MessageEvent<HostMessage>) => {
   const msg = e.data;
   switch (msg.type) {
     case "load": {
-      // A change from outside (undo from the menu, another editor) wins over a nudge not yet written.
+      // A change from outside (undo from the menu, another editor) wins over a nudge not yet written, and over an open line.
       nudges.cancel();
+      dropPinned();
       try {
         data = parseCanvas(msg.text);
       } catch (err) {
@@ -2230,18 +2797,25 @@ window.addEventListener("message", (e: MessageEvent<HostMessage>) => {
     case "dropped":
       placeDropped(msg.items, msg);
       break;
+    case "export":
+      exportCanvas(msg).catch((err: unknown) =>
+        post({ type: "notify", text: `The export failed: ${(err as Error)?.message || err}. A smaller scale may help.` }),
+      );
+      break;
+    case "inlined":
+      inlineWaiter?.(msg.data);
+      inlineWaiter = null;
+      break;
     case "settings":
       settingsStyle = resolveDrawingStyle(msg.drawingStyle);
       themeSetting = msg.theme;
       applyPaper();
       if (loaded) render();
-      else updateCanvasStyleButton();
       break;
   }
 });
 
 applyView();
 applyPaper();
-updateCanvasStyleButton();
 showTool(toolbar, viewport, tool);
 post({ type: "ready" });

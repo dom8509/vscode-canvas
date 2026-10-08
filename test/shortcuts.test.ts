@@ -12,7 +12,7 @@ describe("shortcuts", () => {
   });
 
   it("has a key for every tool and add button in the bottom toolbar", () => {
-    for (const id of ["select", "hand", "text", "rectangle", "ellipse", "card", "group"]) {
+    for (const id of ["select", "hand", "text", "rectangle", "ellipse", "arrow", "line", "card", "group"]) {
       expect(shortcut(id).keys.length, id).toBeGreaterThan(0);
     }
     const named = TOOLBAR_BUTTONS.flatMap((b) => b.shortcuts);

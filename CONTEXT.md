@@ -29,9 +29,15 @@ Obsidian shows all three as plain text cards.
 
 ## Connections
 
-**Connection**: a line from one card to another. The file calls it an edge (`CanvasEdge`); people and the UI say connection. _Avoid_: arrow, link (a link is a link card).
+**Connection**: a line from one card to another, or from or to a **free end**. The file calls it an edge (`CanvasEdge`); people and the UI say connection. _Avoid_: arrow, link (a link is a link card).
 
 **Side**: where a connection meets a card: top, right, bottom or left.
+
+**Free end**: an end of a connection that joins no card and sits at a spot on the canvas, as an arrow in Excalidraw does.
+
+**Point**: the node that holds a free end: an empty 1×1 text node with `"shape": "point"`. The canvas never draws, selects or exports it; it goes when its last connection goes. Obsidian shows it as a tiny card. Code: `isPoint`, `pointNodeAt`.
+
+**Pin** and **bend**: with the arrow or line tool, a click pins a line point by point. The first pin is the start, the last the end, and each one between is a **bend** the connection passes through. Saved as `"bends"` on the edge, in canvas coordinates; Obsidian draws the connection straight from end to end. Code: `bendsOf`, `setBends`.
 
 **End** and **head**: JSON Canvas knows two ends, `none` and `arrow`. The **head** is the drawn shape at an end (arrow, open, dot, bar, diamond); any head other than none is saved as an `arrow` end plus a head property.
 
@@ -59,6 +65,10 @@ Obsidian shows all three as plain text cards.
 
 **Turn**: a card's rotation, clockwise in degrees, set with the turn handle. Saved as `rotation`.
 
+**Stroke**: one line drawn with the pen: an empty text node with `"shape": "draw"`, its box as `x`, `y`, `width`, `height`, and `"points"` relative to the box. It moves, resizes and turns like a card; only its line takes clicks. Obsidian shows an empty card. Not the **stroke width**, which is the thickness of a line. Code: `isStroke`, `strokePoints`.
+
+**Custom shape**: a stroke whose ends met, or a pinned line closed at its first pin (`"sharp": true`, straight sides). Saved with `"closed": true`. It keeps its outline and works like a shape: fill, text, connection dots. Obsidian shows a text card with its text. Code: `isClosed`, `setClosed`.
+
 **Text scale**: how much bigger free text is drawn after being scaled by a corner handle. Saved as `textScale`.
 
 ## Editor
@@ -71,10 +81,12 @@ Obsidian shows all three as plain text cards.
 
 **Context menu**: the menu a right-click opens, for the selection or for the empty canvas. The canvas draws its own; VS Code's webview menu stays away.
 
+**Export**: the canvas, or its selection, saved as a picture (SVG or PNG) that looks like the board and needs nothing outside itself. Code: `exportCanvas`, `buildSvg`.
+
 **Shortcut overview**: the panel that lists every key, grouped by tools, editing, view and navigation. Opened with `?` or the button in the zoom bar.
 
 **Properties panel**: the panel on the left that shows and sets the look of the selection.
 
 **Bottom toolbar**: the row of buttons that picks a tool and adds cards, shapes, text, files, images, links and groups.
 
-**Tool**: what a press on the canvas does. Code: `Tool`. The **select tool** (V) selects, moves and resizes; the **hand tool** (H) pans with a left drag; the text and shape tools place free text and shapes.
+**Tool**: what a press on the canvas does. Code: `Tool`. The **select tool** (V) selects, moves and resizes; the **hand tool** (H) pans with a left drag; the text and shape tools place free text and shapes. The **pen** (P) draws strokes; the **eraser** (E) deletes what it is dragged over. The **arrow tool** (A) and the **line tool** (L) draw connections anywhere, with an arrow head at the end or none. Code: `{ kind: "connection" }`.

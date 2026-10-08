@@ -1,5 +1,30 @@
 import { describe, expect, it } from "vitest";
-import { cssColor, isImagePath, isLocked, newId, parseCanvas, serializeCanvas, setLocked } from "../src/jsonCanvas";
+import {
+  type CanvasData,
+  type CanvasNode,
+  bendsOf,
+  copyFragment,
+  cssColor,
+  isImagePath,
+  isLocked,
+  isClosed,
+  isPoint,
+  isStroke,
+  newId,
+  nodeLook,
+  parseCanvas,
+  pointNodeAt,
+  pointsOfEdges,
+  prunePoints,
+  rebind,
+  serializeCanvas,
+  setBends,
+  setClosed,
+  setLocked,
+  setNodeLook,
+  setStrokePoints,
+  strokePoints,
+} from "../src/jsonCanvas";
 
 describe("parseCanvas", () => {
   it("reads an empty file as an empty canvas", () => {
@@ -112,5 +137,241 @@ describe("lock", () => {
 
   it("counts only true as locked", () => {
     expect(isLocked({ id: "e", fromNode: "a", toNode: "b", locked: "yes" })).toBe(false);
+  });
+});
+
+describe("points", () => {
+  const card = { id: "c", type: "text" as const, text: "Hi", x: 0, y: 0, width: 100, height: 50 };
+
+  it("makes a 1×1 empty text node centered on the free end", () => {
+    const p = pointNodeAt({ x: 100, y: 40 });
+    expect(p).toMatchObject({ type: "text", text: "", shape: "point", x: 99.5, y: 39.5, width: 1, height: 1 });
+    expect(p.id).toMatch(/^[0-9a-f]{16}$/);
+    expect(isPoint(p)).toBe(true);
+    expect(isPoint(card)).toBe(false);
+  });
+
+  it("removes a point no connection names, and keeps the others", () => {
+    const a = pointNodeAt({ x: 0, y: 0 });
+    const b = pointNodeAt({ x: 9, y: 9 });
+    const orphan = pointNodeAt({ x: 5, y: 5 });
+    const data: CanvasData = {
+      nodes: [card, a, b, orphan],
+      edges: [
+        { id: "e1", fromNode: "c", toNode: a.id },
+        { id: "e2", fromNode: b.id, toNode: "c", locked: true },
+      ],
+    };
+    prunePoints(data);
+    expect(data.nodes.map((n) => n.id)).toEqual(["c", a.id, b.id]);
+  });
+
+  it("keeps a point without a connection when a canvas is read and written", () => {
+    const orphan = pointNodeAt({ x: 5, y: 5 });
+    const text = serializeCanvas({ nodes: [card, orphan], edges: [] });
+    expect(serializeCanvas(parseCanvas(text))).toBe(text);
+  });
+
+  it("keeps a connection to a point through a round trip", () => {
+    const a = pointNodeAt({ x: 300, y: 25 });
+    const text = serializeCanvas({ nodes: [card, a], edges: [{ id: "e", fromNode: "c", fromSide: "right", toNode: a.id }] });
+    const data = parseCanvas(text);
+    expect(data.edges).toHaveLength(1);
+    expect(serializeCanvas(data)).toBe(text);
+  });
+
+  it("is not a card whose look can be set", () => {
+    const p = pointNodeAt({ x: 0, y: 0 });
+    expect(nodeLook(p).shape).toBe("point");
+    const before = { ...p };
+    setNodeLook(p, { shape: "rectangle", fontSize: "l", strokeWidth: "bold" });
+    expect(p).toEqual(before);
+  });
+});
+
+describe("rebind", () => {
+  const card = (id: string, x: number) => ({ id, type: "text" as const, text: "", x, y: 0, width: 100, height: 50 });
+  const setup = () => {
+    const free = pointNodeAt({ x: 500, y: 25 });
+    const data: CanvasData = {
+      nodes: [card("a", 0), card("b", 300), free],
+      edges: [{ id: "e", fromNode: "a", fromSide: "right", toNode: free.id }],
+    };
+    return { data, free };
+  };
+
+  it("binds a free end to a card; the old point goes on the next prune", () => {
+    const { data, free } = setup();
+    expect(rebind(data, "e", "to", { node: "b", side: "left" })).toBe(true);
+    expect(data.edges[0]).toMatchObject({ toNode: "b", toSide: "left" });
+    prunePoints(data);
+    expect(data.nodes.some((n) => n.id === free.id)).toBe(false);
+  });
+
+  it("makes a new point when dropped on empty space", () => {
+    const { data } = setup();
+    expect(rebind(data, "e", "from", { at: { x: -200, y: 10 } })).toBe(true);
+    const point = data.nodes.find((n) => n.id === data.edges[0]!.fromNode)!;
+    expect(isPoint(point)).toBe(true);
+    expect(point).toMatchObject({ x: -200.5, y: 9.5 });
+    expect(data.edges[0]!.fromSide).toBeUndefined();
+  });
+
+  it("changes nothing when dropped on the card at the other end", () => {
+    const { data } = setup();
+    data.edges[0]!.toNode = "b";
+    const before = structuredClone(data);
+    expect(rebind(data, "e", "from", { node: "b", side: "top" })).toBe(false);
+    expect(data).toEqual(before);
+  });
+
+  it("changes nothing on a locked connection", () => {
+    const { data } = setup();
+    data.edges[0]!.locked = true;
+    const before = structuredClone(data);
+    expect(rebind(data, "e", "to", { node: "b", side: "left" })).toBe(false);
+    expect(data).toEqual(before);
+  });
+});
+
+describe("bends", () => {
+  const edge = () => ({ id: "e", fromNode: "a", toNode: "b" }) as Parameters<typeof bendsOf>[0];
+
+  it("saves bends as a flat list, rounded to one decimal", () => {
+    const e = edge();
+    setBends(e, [{ x: 10.04, y: 20.06 }, { x: -3, y: 4.25 }]);
+    expect(e.bends).toEqual([10, 20.1, -3, 4.3]);
+    expect(bendsOf(e)).toEqual([{ x: 10, y: 20.1 }, { x: -3, y: 4.3 }]);
+  });
+
+  it("leaves bends out when there are none", () => {
+    const e = edge();
+    setBends(e, [{ x: 1, y: 2 }]);
+    setBends(e, []);
+    expect("bends" in e).toBe(false);
+    expect(bendsOf(e)).toEqual([]);
+  });
+
+  it("reads a broken list as no bends", () => {
+    expect(bendsOf({ ...edge(), bends: [1, 2, 3] })).toEqual([]);
+    expect(bendsOf({ ...edge(), bends: [1, "2"] })).toEqual([]);
+    expect(bendsOf({ ...edge(), bends: "1,2" })).toEqual([]);
+  });
+
+  it("keeps bends through a round trip", () => {
+    const text = serializeCanvas({
+      nodes: [
+        { id: "a", type: "text", text: "", x: 0, y: 0, width: 10, height: 10 },
+        { id: "b", type: "text", text: "", x: 90, y: 0, width: 10, height: 10 },
+      ],
+      edges: [{ id: "e", fromNode: "a", toNode: "b", bends: [50, 80] }],
+    });
+    expect(serializeCanvas(parseCanvas(text))).toBe(text);
+  });
+});
+
+describe("pointsOfEdges", () => {
+  const card = { id: "c", type: "text" as const, text: "", x: 0, y: 0, width: 100, height: 50 };
+  const p1 = pointNodeAt({ x: 200, y: 0 });
+  const p2 = pointNodeAt({ x: 300, y: 0 });
+  const p3 = pointNodeAt({ x: 400, y: 0 });
+  const data: CanvasData = {
+    nodes: [card, p1, p2, p3],
+    edges: [
+      { id: "free", fromNode: p1.id, toNode: p2.id },
+      { id: "fromCard", fromNode: "c", toNode: p3.id },
+      { id: "locked", fromNode: p2.id, toNode: p3.id, locked: true },
+    ],
+  };
+
+  it("gives the points of the given connections only", () => {
+    expect(pointsOfEdges(data, ["free"]).map((n) => n.id)).toEqual([p1.id, p2.id]);
+  });
+
+  it("brings the point of a card's connection, not the card", () => {
+    expect(pointsOfEdges(data, ["fromCard"]).map((n) => n.id)).toEqual([p3.id]);
+  });
+
+  it("skips locked connections for a move, and keeps them for a copy", () => {
+    expect(pointsOfEdges(data, ["locked"], true)).toEqual([]);
+    expect(pointsOfEdges(data, ["locked"]).map((n) => n.id)).toEqual([p2.id, p3.id]);
+  });
+});
+
+describe("strokes", () => {
+  const stroke = (): CanvasNode => ({ id: "s", type: "text", text: "", shape: "draw", x: 10, y: 20, width: 30, height: 40 });
+
+  it("saves points as a flat list relative to the box, rounded to one decimal", () => {
+    const s = stroke();
+    setStrokePoints(s, [{ x: 0, y: 0.04 }, { x: 29.96, y: 40 }]);
+    expect(s.points).toEqual([0, 0, 30, 40]);
+    expect(strokePoints(s)).toEqual([{ x: 0, y: 0 }, { x: 30, y: 40 }]);
+    expect(isStroke(s)).toBe(true);
+    expect(isStroke({ ...stroke(), shape: "rectangle" })).toBe(false);
+  });
+
+  it("keeps a stroke through a round trip", () => {
+    const s = stroke();
+    setStrokePoints(s, [{ x: 0, y: 0 }, { x: 30, y: 40 }]);
+    const text = serializeCanvas({ nodes: [{ ...s, color: "4", strokeWidth: "bold", style: "architect" }], edges: [] });
+    expect(serializeCanvas(parseCanvas(text))).toBe(text);
+  });
+
+  it("stays a stroke when its width is set", () => {
+    const s = stroke();
+    expect(nodeLook(s).shape).toBe("draw");
+    setNodeLook(s, { strokeWidth: "bold" });
+    expect(s).toMatchObject({ shape: "draw", strokeWidth: "bold" });
+  });
+});
+
+describe("custom shapes", () => {
+  const stroke = (): CanvasNode => ({ id: "s", type: "text", text: "", shape: "draw", x: 0, y: 0, width: 30, height: 40, points: [0, 0, 30, 40, 0, 0] });
+
+  it("marks a closed stroke, and leaves an open one unmarked", () => {
+    const s = stroke();
+    expect(isClosed(s)).toBe(false);
+    setClosed(s, true);
+    expect(s.closed).toBe(true);
+    expect(isClosed(s)).toBe(true);
+    setClosed(s, false);
+    expect("closed" in s).toBe(false);
+  });
+
+  it("has no fill by default, and keeps a light fill in the file", () => {
+    const s = stroke();
+    expect(nodeLook(s).fill).toBe("none");
+    setNodeLook(s, { fill: "semi" });
+    expect(s.fill).toBe("semi");
+    setNodeLook(s, { fill: "none" });
+    expect("fill" in s).toBe(false);
+  });
+});
+
+describe("copyFragment", () => {
+  const card = (id: string) => ({ id, type: "text" as const, text: "", x: 0, y: 0, width: 10, height: 10 });
+  const p1 = pointNodeAt({ x: 100, y: 0 });
+  const p2 = pointNodeAt({ x: 200, y: 0 });
+  const data: CanvasData = {
+    nodes: [card("a"), card("b"), p1, p2],
+    edges: [
+      { id: "ab", fromNode: "a", toNode: "b" },
+      { id: "ap", fromNode: "a", toNode: p1.id },
+      { id: "pp", fromNode: p1.id, toNode: p2.id },
+    ],
+  };
+  const ids = (f: ReturnType<typeof copyFragment>) => f && [f.nodes.map((n) => n.id), f.edges.map((e) => e.id)];
+
+  it("brings a copied card's connection to a free end, with the point", () => {
+    expect(ids(copyFragment(data, new Set(["a"])))).toEqual([["a", p1.id], ["ap"]]);
+  });
+
+  it("brings the points of a selected free connection", () => {
+    expect(ids(copyFragment(data, new Set(["pp"])))).toEqual([[p1.id, p2.id], ["pp"]]);
+  });
+
+  it("holds nothing for a connection whose card is not copied", () => {
+    expect(copyFragment(data, new Set(["ap"]))).toBeUndefined();
+    expect(copyFragment(data, new Set(["ab"]))).toBeUndefined();
   });
 });

@@ -1,0 +1,166 @@
+// Pen strokes: smoothing, their box, and hitting them. A stroke's points are
+// relative to its box; the box is the node's x, y, width and height.
+
+import { type CanvasNode, isLocked, isPoint, isStroke, rotationOf, strokePoints } from "../src/jsonCanvas";
+import { type Point, type Rect, center, rotatePoint } from "./geometry";
+
+/** The points of a line with the ones within `tolerance` of it dropped (Ramer–Douglas–Peucker). The ends stay. */
+export function simplify(points: Point[], tolerance: number): Point[] {
+  if (points.length <= 2) return points;
+  const keep = new Array<boolean>(points.length).fill(false);
+  keep[0] = keep[points.length - 1] = true;
+  const stack: [number, number][] = [[0, points.length - 1]];
+  while (stack.length) {
+    const [i, j] = stack.pop()!;
+    let far = -1;
+    let farthest = tolerance;
+    for (let k = i + 1; k < j; k++) {
+      const d = distanceToSegment(points[k]!, points[i]!, points[j]!);
+      if (d > farthest) {
+        far = k;
+        farthest = d;
+      }
+    }
+    if (far < 0) continue;
+    keep[far] = true;
+    stack.push([i, far], [far, j]);
+  }
+  return points.filter((_, k) => keep[k]);
+}
+
+/**
+ * SVG path data of a smooth line through every point (Catmull-Rom as cubic Béziers). One point is a
+ * dot. A `closed` line, whose last point is its first, runs on smoothly through the join and ends in Z.
+ */
+export function smoothPath(points: Point[], closed = false): string {
+  const r = (v: number) => Math.round(v * 100) / 100;
+  const a = points[0];
+  if (!a) return "";
+  if (points.length === 1) return `M ${r(a.x)} ${r(a.y)} L ${r(a.x)} ${r(a.y)}`;
+  let d = `M ${r(a.x)} ${r(a.y)}`;
+  const n = points.length;
+  // Around a closed line the neighbours wrap, skipping the repeated first point.
+  const at = (k: number) => (closed && n > 3 ? points[(((k % (n - 1)) + (n - 1)) % (n - 1))]! : points[Math.max(0, Math.min(n - 1, k))]!);
+  for (let i = 0; i < n - 1; i++) {
+    const p0 = at(i - 1);
+    const p1 = points[i]!;
+    const p2 = points[i + 1]!;
+    const p3 = at(i + 2);
+    d += ` C ${r(p1.x + (p2.x - p0.x) / 6)} ${r(p1.y + (p2.y - p0.y) / 6)}, ${r(p2.x - (p3.x - p1.x) / 6)} ${r(p2.y - (p3.y - p1.y) / 6)}, ${r(p2.x)} ${r(p2.y)}`;
+  }
+  return closed ? `${d} Z` : d;
+}
+
+/** The box around a stroke drawn in canvas coordinates, at least one pixel each way, and its points relative to the box. */
+export function strokeBox(points: Point[]): { box: Rect; points: Point[] } {
+  const xs = points.map((p) => p.x);
+  const ys = points.map((p) => p.y);
+  const round = (v: number) => Math.round(v * 10) / 10;
+  const x = round(Math.min(...xs));
+  const y = round(Math.min(...ys));
+  const box = { x, y, width: Math.max(1, round(Math.max(...xs) - x)), height: Math.max(1, round(Math.max(...ys) - y)) };
+  return { box, points: points.map((p) => ({ x: p.x - x, y: p.y - y })) };
+}
+
+/** The points of a stroke whose box changed size from `from` to `to`. */
+export function scalePoints(points: Point[], from: { width: number; height: number }, to: { width: number; height: number }): Point[] {
+  const sx = to.width / from.width;
+  const sy = to.height / from.height;
+  return points.map((p) => ({ x: p.x * sx, y: p.y * sy }));
+}
+
+/** A stroke's points in canvas coordinates, turned with it. */
+export function worldPoints(node: CanvasNode): Point[] {
+  const c = center(node);
+  const turn = rotationOf(node);
+  return strokePoints(node).map((p) => rotatePoint({ x: node.x + p.x, y: node.y + p.y }, c, turn));
+}
+
+/** Whether `p` lies within `tolerance` of a stroke's line. */
+export function hitStroke(node: CanvasNode, p: Point, tolerance: number): boolean {
+  const points = worldPoints(node);
+  if (points.length === 1) return Math.hypot(p.x - points[0]!.x, p.y - points[0]!.y) <= tolerance;
+  for (let i = 1; i < points.length; i++) if (distanceToSegment(p, points[i - 1]!, points[i]!) <= tolerance) return true;
+  return false;
+}
+
+/** Whether a stroke's end came back within `tolerance` of its start, and its box is at least `minSize` on its longer side. */
+export function closes(points: Point[], tolerance: number, minSize: number): boolean {
+  const a = points[0];
+  const b = points[points.length - 1];
+  if (!a || !b || points.length < 3) return false;
+  const xs = points.map((p) => p.x);
+  const ys = points.map((p) => p.y);
+  const size = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
+  return Math.hypot(b.x - a.x, b.y - a.y) <= tolerance && size >= minSize;
+}
+
+/** Whether `p` lies inside a custom shape's outline. */
+export function hitInside(node: CanvasNode, p: Point): boolean {
+  const points = worldPoints(node);
+  let inside = false;
+  for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+    const a = points[i]!;
+    const b = points[j]!;
+    if (a.y > p.y !== b.y > p.y && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+  }
+  return inside;
+}
+
+/** A connection for the eraser: its id and its line as drawn, in canvas coordinates. */
+export interface EdgeLine {
+  id: string;
+  points: Point[];
+  locked?: boolean;
+}
+
+/**
+ * The ids of what the pointer's path (one point, or the segments between points) touches within
+ * `tolerance`: strokes and connections by their line, cards by their box, turned as drawn, groups by
+ * their frame. Points and locked elements are passed by.
+ */
+export function touched(nodes: CanvasNode[], edges: EdgeLine[], path: Point[], tolerance: number): string[] {
+  const segments: [Point, Point][] = path.length === 1 ? [[path[0]!, path[0]!]] : path.slice(1).map((p, i) => [path[i]!, p]);
+  const nearLine = (points: Point[]) => {
+    const lines: [Point, Point][] = points.length === 1 ? [[points[0]!, points[0]!]] : points.slice(1).map((p, i) => [points[i]!, p]);
+    return lines.some(([a, b]) => segments.some(([c, d]) => segmentDistance(a, b, c, d) <= tolerance));
+  };
+  const hit = (n: CanvasNode): boolean => {
+    if (isStroke(n)) return nearLine(worldPoints(n));
+    // In the card's own frame its box is upright.
+    const c = center(n);
+    const turn = rotationOf(n);
+    const local = segments.map(([a, b]) => [rotatePoint(a, c, -turn), rotatePoint(b, c, -turn)] as [Point, Point]);
+    const corners = [
+      { x: n.x, y: n.y },
+      { x: n.x + n.width, y: n.y },
+      { x: n.x + n.width, y: n.y + n.height },
+      { x: n.x, y: n.y + n.height },
+    ];
+    const frame = corners.map((p, i) => [p, corners[(i + 1) % 4]!] as [Point, Point]);
+    const onFrame = local.some(([a, b]) => frame.some(([p, q]) => segmentDistance(a, b, p, q) <= tolerance));
+    if (n.type === "group") return onFrame;
+    const inside = (p: Point) => p.x >= n.x && p.x <= n.x + n.width && p.y >= n.y && p.y <= n.y + n.height;
+    return onFrame || local.some(([a]) => inside(a));
+  };
+  return [
+    ...nodes.filter((n) => !isLocked(n) && !isPoint(n) && hit(n)).map((n) => n.id),
+    ...edges.filter((e) => !e.locked && nearLine(e.points)).map((e) => e.id),
+  ];
+}
+
+/** The shortest distance between the segments `ab` and `cd`: 0 when they cross. */
+function segmentDistance(a: Point, b: Point, c: Point, d: Point): number {
+  const cross = (o: Point, p: Point, q: Point) => (p.x - o.x) * (q.y - o.y) - (p.y - o.y) * (q.x - o.x);
+  const d1 = cross(c, d, a), d2 = cross(c, d, b), d3 = cross(a, b, c), d4 = cross(a, b, d);
+  if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) return 0;
+  return Math.min(distanceToSegment(a, c, d), distanceToSegment(b, c, d), distanceToSegment(c, a, b), distanceToSegment(d, a, b));
+}
+
+export function distanceToSegment(p: Point, a: Point, b: Point): number {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len = dx * dx + dy * dy;
+  const t = len ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len)) : 0;
+  return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+}

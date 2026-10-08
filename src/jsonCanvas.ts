@@ -172,6 +172,14 @@ const IMAGE_MIME_EXTENSIONS: Record<string, string> = {
   "image/avif": "avif",
 };
 
+/** The MIME type of an image or font file, by its extension. */
+export function mimeOf(path: string): string {
+  const ext = path.split(".").pop()?.toLowerCase() ?? "";
+  if (ext === "woff2" || ext === "woff") return `font/${ext}`;
+  if (ext === "jpg") return "image/jpeg";
+  return Object.keys(IMAGE_MIME_EXTENSIONS).find((m) => IMAGE_MIME_EXTENSIONS[m] === ext) ?? "application/octet-stream";
+}
+
 /** True for an image the canvas can show, by MIME type or file name. */
 export function isImageFile(mime: string, name = ""): boolean {
   return mime in IMAGE_MIME_EXTENSIONS || isImagePath(name);
@@ -293,7 +301,8 @@ export const FONT_FAMILIES: FontFamily[] = ["sans", "serif", "mono", "hand"];
  * Obsidian card. Its font size is undefined until set: it keeps the editor's size.
  */
 export interface NodeLook {
-  shape: ShapeKind | "text" | "card";
+  /** "point" is the hidden node of a free end; it has no look to set. "draw" is a pen stroke. */
+  shape: ShapeKind | "text" | "card" | "point" | "draw";
   fill: Fill;
   fontSize: FontSize | undefined;
   fontFamily: FontFamily;
@@ -302,11 +311,13 @@ export interface NodeLook {
 }
 
 export function nodeLook(node: CanvasNode): NodeLook {
-  const shape = node.type !== "text" ? "card" : node.shape === "text" ? "text" : oneOf(SHAPES, node.shape, "card" as ShapeKind);
+  const shape =
+    node.type !== "text" ? "card" : node.shape === "text" || node.shape === "point" || node.shape === "draw" ? node.shape : oneOf(SHAPES, node.shape, "card" as ShapeKind);
   const size = FONT_SIZES.includes(node.fontSize as FontSize) ? (node.fontSize as FontSize) : undefined;
   return {
     shape: shape as NodeLook["shape"],
-    fill: oneOf(FILLS, node.fill, "semi"),
+    // A stroke closed into a custom shape starts unfilled, so it does not hide what it is drawn around.
+    fill: oneOf(FILLS, node.fill, isStroke(node) ? "none" : "semi"),
     fontSize: size ?? (shape === "card" ? undefined : "m"),
     fontFamily: oneOf(FONT_FAMILIES, node.fontFamily, "sans"),
     strokeWidth: oneOf(LINE_WIDTHS, node.strokeWidth, "normal"),
@@ -323,9 +334,10 @@ const LOOK_DEFAULTS: Record<keyof NodeLook, string> = {
 
 /** Sets part of the look of a text card or a file card. Defaults are left out of the file. */
 export function setNodeLook(node: CanvasNode, look: Partial<NodeLook>): void {
-  if (node.type !== "text" && node.type !== "file") return;
+  if ((node.type !== "text" && node.type !== "file") || isPoint(node)) return;
   for (const [key, value] of Object.entries(look) as [keyof NodeLook, string | undefined][]) {
-    if (!value || value === LOOK_DEFAULTS[key]) delete node[key];
+    const fallback = key === "fill" && isStroke(node) ? "none" : LOOK_DEFAULTS[key];
+    if (!value || value === fallback) delete node[key];
     else node[key] = value;
   }
 }
@@ -374,4 +386,128 @@ export function isLocked(element: CanvasNode | CanvasEdge): boolean {
 export function setLocked(element: CanvasNode | CanvasEdge, on: boolean): void {
   if (on) element.locked = true;
   else delete element.locked;
+}
+
+// ---------------------------------------------------------------- free ends
+// JSON Canvas edges always join two nodes. A free end joins a point: a tiny,
+// empty text node the canvas never shows. Obsidian shows it as a tiny card.
+
+/** The node that holds a free end. */
+export function isPoint(node: CanvasNode): boolean {
+  return node.type === "text" && node.shape === "point";
+}
+
+/** A new point centered on `p`. */
+export function pointNodeAt(p: { x: number; y: number }): TextNode {
+  const round = (v: number) => Math.round(v * 10) / 10;
+  return { id: newId(), type: "text", text: "", shape: "point", x: round(p.x - 0.5), y: round(p.y - 0.5), width: 1, height: 1 };
+}
+
+/** Removes the points no connection names any more. */
+export function prunePoints(data: CanvasData): void {
+  const named = new Set(data.edges.flatMap((e) => [e.fromNode, e.toNode]));
+  data.nodes = data.nodes.filter((n) => !isPoint(n) || named.has(n.id));
+}
+
+/** The points at the ends of the given connections, for a move (`skipLocked`: a locked one stays put) or a copy. */
+export function pointsOfEdges(data: CanvasData, edgeIds: Iterable<string>, skipLocked = false): CanvasNode[] {
+  const ids = new Set(edgeIds);
+  const ends = new Set(data.edges.filter((e) => ids.has(e.id) && !(skipLocked && isLocked(e))).flatMap((e) => [e.fromNode, e.toNode]));
+  return data.nodes.filter((n) => isPoint(n) && ends.has(n.id));
+}
+
+/**
+ * What a copy of the selection holds: the selected cards and the connections between them, the points
+ * of selected connections, and a copied card's connections to a point, with the point. Undefined when
+ * that holds no card and no whole connection.
+ */
+export function copyFragment(data: CanvasData, selection: Set<string>): { nodes: CanvasNode[]; edges: CanvasEdge[] } | undefined {
+  const points = new Set(data.nodes.filter(isPoint).map((n) => n.id));
+  const cards = new Set(data.nodes.filter((n) => selection.has(n.id) && !points.has(n.id)).map((n) => n.id));
+  const carried = data.edges.filter(
+    (e) => selection.has(e.id) || (cards.has(e.fromNode) && points.has(e.toNode)) || (cards.has(e.toNode) && points.has(e.fromNode)),
+  );
+  const ids = new Set([...cards, ...pointsOfEdges(data, carried.map((e) => e.id)).map((n) => n.id)]);
+  const nodes = data.nodes.filter((n) => ids.has(n.id));
+  const edges = data.edges.filter((e) => ids.has(e.fromNode) && ids.has(e.toNode));
+  return cards.size || edges.length ? { nodes, edges } : undefined;
+}
+
+/** Where a dragged end lands: a card at one of its sides, or a free end at a spot. */
+export type EndTarget = { node: string; side: Side } | { at: { x: number; y: number } };
+
+/**
+ * Moves one end of a connection to a card or to empty space, where it gets a new point. Returns
+ * false when nothing changes: a locked connection, or the card at its other end.
+ */
+export function rebind(data: CanvasData, edgeId: string, end: "from" | "to", target: EndTarget): boolean {
+  const edge = data.edges.find((e) => e.id === edgeId);
+  if (!edge || isLocked(edge)) return false;
+  const [node, side, other] = end === "from" ? (["fromNode", "fromSide", edge.toNode] as const) : (["toNode", "toSide", edge.fromNode] as const);
+  if ("node" in target) {
+    if (target.node === other || (target.node === edge[node] && target.side === edge[side])) return false;
+    edge[node] = target.node;
+    edge[side] = target.side;
+  } else {
+    const point = pointNodeAt(target.at);
+    data.nodes.push(point);
+    edge[node] = point.id;
+    delete edge[side];
+  }
+  return true;
+}
+
+// ---------------------------------------------------------------- bends
+// A connection can bend through points pinned while drawing it. Saved as a flat
+// list `"bends": [x1, y1, x2, y2, …]` in canvas coordinates; Obsidian draws the
+// connection straight from end to end.
+
+/** The bends of a connection, or none when the list is missing or broken. */
+export function bendsOf(edge: CanvasEdge): { x: number; y: number }[] {
+  return pairs(edge.bends);
+}
+
+export function setBends(edge: CanvasEdge, points: { x: number; y: number }[]): void {
+  if (points.length) edge.bends = flat(points);
+  else delete edge.bends;
+}
+
+/** A flat list `[x1, y1, x2, y2, …]` as points, or none when it is missing or broken. */
+function pairs(list: unknown): { x: number; y: number }[] {
+  if (!Array.isArray(list) || list.length % 2 !== 0 || !list.every((v) => typeof v === "number" && Number.isFinite(v))) return [];
+  const out: { x: number; y: number }[] = [];
+  for (let i = 0; i < list.length; i += 2) out.push({ x: list[i] as number, y: list[i + 1] as number });
+  return out;
+}
+
+/** Points as a flat list, rounded to one decimal. */
+function flat(points: { x: number; y: number }[]): number[] {
+  const round = (v: number) => Math.round(v * 10) / 10 || 0;
+  return points.flatMap((p) => [round(p.x), round(p.y)]);
+}
+
+// ---------------------------------------------------------------- strokes
+// A pen stroke is an empty text node with `"shape": "draw"`, its bounding box,
+// and its points relative to the box's top left. Obsidian shows an empty card.
+
+export function isStroke(node: CanvasNode): boolean {
+  return node.type === "text" && node.shape === "draw";
+}
+
+export function strokePoints(node: CanvasNode): { x: number; y: number }[] {
+  return pairs(node.points);
+}
+
+export function setStrokePoints(node: CanvasNode, points: { x: number; y: number }[]): void {
+  node.points = flat(points);
+}
+
+/** A stroke whose ends met: a custom shape, with a fill and text. */
+export function isClosed(node: CanvasNode): boolean {
+  return isStroke(node) && node.closed === true;
+}
+
+export function setClosed(node: CanvasNode, on: boolean): void {
+  if (on) node.closed = true;
+  else delete node.closed;
 }
