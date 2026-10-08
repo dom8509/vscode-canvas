@@ -25,7 +25,8 @@ stays valid JSON Canvas and still opens in Obsidian.
 
 ## Non-goals
 
-- Shape recognition from freehand strokes.
+- Shape recognition from freehand strokes (a closed stroke keeps the outline
+  as drawn; it is not turned into a rectangle or ellipse).
 - Pressure-sensitive brush styles beyond simple stroke width.
 - PDF export, embedding a live canvas in Markdown, collaboration.
 
@@ -63,6 +64,8 @@ Obsidian shows a tiny empty card there, which is acceptable.
   lock work as for any node.
 - Strokes made within a short time with the pen still active stay separate
   nodes; the user can group them.
+- A stroke that ends where it started closes, as in Excalidraw, and becomes a
+  custom shape: it can be filled, written in and connected like any shape.
 
 ### R5. Eraser
 - New tool **E**. Dragging over strokes deletes the strokes it touches.
@@ -76,7 +79,6 @@ Obsidian shows a tiny empty card there, which is acceptable.
 - Exports the selection if there is one, otherwise the whole canvas, with a
   padding margin.
 - Options: background on/off, light or dark, scale 1×/2×/3× (PNG).
-- *Copy as PNG* (Ctrl/Cmd+Shift+C) puts the image on the clipboard.
 - The exported image looks exactly like the canvas: same fonts (handwriting
   font embedded in SVG), same Rough.js lines, images and note previews.
 - Files are saved via VS Code's save dialog, next to the canvas by default.
