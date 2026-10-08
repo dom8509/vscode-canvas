@@ -12,16 +12,15 @@ const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "bmp", "svg", "webp", "av
 export class CanvasEditorProvider implements vscode.CustomTextEditorProvider {
   static readonly viewType = "canvas.editor";
   static activeUri: vscode.Uri | undefined;
-  /** How to send a message to the webview of each open canvas, by its URI. */
-  private static readonly webviews = new Map<string, (msg: HostMessage) => void>();
+  /** How to send a message to the webview of the canvas editor that was active last. Two editors on one file each have their own. */
+  private static activePost: ((msg: HostMessage) => void) | undefined;
 
   /**
    * Asks for the export options, then the active canvas for its picture. The paper starts on `paper`,
    * the one the canvas shows; background and scale start on the ones picked last.
    */
   async exportActive(format: ExportFormat, paper: Paper = shownPaper()): Promise<void> {
-    const uri = CanvasEditorProvider.activeUri;
-    const post = uri && CanvasEditorProvider.webviews.get(uri.toString());
+    const post = CanvasEditorProvider.activePost;
     if (!post) {
       void vscode.window.showInformationMessage("Open a canvas first.");
       return;
@@ -54,7 +53,7 @@ export class CanvasEditorProvider implements vscode.CustomTextEditorProvider {
     // The text the webview shows. A document change to other text (undo, redo, an edit as text) is sent to it.
     let shown: string | undefined;
     const post = (msg: HostMessage) => void webview.postMessage(msg);
-    CanvasEditorProvider.webviews.set(document.uri.toString(), post);
+
     const sendDocument = () => {
       const text = document.getText();
       if (text === shown) return;
@@ -68,7 +67,9 @@ export class CanvasEditorProvider implements vscode.CustomTextEditorProvider {
     };
 
     const track = () => {
-      if (panel.active) CanvasEditorProvider.activeUri = document.uri;
+      if (!panel.active) return;
+      CanvasEditorProvider.activeUri = document.uri;
+      CanvasEditorProvider.activePost = post;
     };
     track();
 
@@ -152,7 +153,7 @@ export class CanvasEditorProvider implements vscode.CustomTextEditorProvider {
 
     panel.onDidDispose(() => {
       subs.forEach((s) => s.dispose());
-      CanvasEditorProvider.webviews.delete(document.uri.toString());
+      if (CanvasEditorProvider.activePost === post) CanvasEditorProvider.activePost = undefined;
       if (CanvasEditorProvider.activeUri?.toString() === document.uri.toString()) {
         CanvasEditorProvider.activeUri = undefined;
       }

@@ -134,7 +134,7 @@ button {
   pointer-events: none;
 }
 
-#ink {
+#pen-layer {
   position: absolute;
   left: 0;
   top: 0;
@@ -172,16 +172,16 @@ button {
 /* A custom shape takes connections at its dots, text in its editor, and, when filled, clicks inside it. */
 .node.stroke > .connect,
 .node.stroke .editor,
-.node.stroke.fill-semi .ink .outline,
-.node.stroke.fill-solid .ink .outline {
+.node.stroke.fill-semi .stroke-svg .outline,
+.node.stroke.fill-solid .stroke-svg .outline {
   pointer-events: auto;
 }
 
-.ink .outline {
+.stroke-svg .outline {
   stroke: none;
 }
 
-.node.stroke.fill-none .ink .outline {
+.node.stroke.fill-none .stroke-svg .outline {
   fill: none;
 }
 
@@ -195,28 +195,28 @@ button {
   opacity: 0.25;
 }
 
-.ink {
+.stroke-svg {
   position: absolute;
   left: 0;
   top: 0;
   overflow: visible;
 }
 
-.ink path {
+.stroke-svg path {
   fill: none;
   stroke-linecap: round;
   stroke-linejoin: round;
   vector-effect: non-scaling-stroke;
 }
 
-.ink .line {
+.stroke-svg .line {
   stroke: var(--shape-stroke);
-  stroke-width: var(--ink-width);
+  stroke-width: var(--stroke-px);
 }
 
-.ink .hit {
+.stroke-svg .hit {
   stroke: transparent;
-  stroke-width: calc(var(--ink-width) + 12 * var(--screen-px, 1px));
+  stroke-width: calc(var(--stroke-px) + 12 * var(--screen-px, 1px));
   pointer-events: stroke;
 }
 

@@ -29,7 +29,7 @@ Obsidian shows all three as plain text cards.
 
 ## Connections
 
-**Connection**: a line from one card to another. The file calls it an edge (`CanvasEdge`); people and the UI say connection. _Avoid_: arrow, link (a link is a link card).
+**Connection**: a line from one card to another, or from or to a **free end**. The file calls it an edge (`CanvasEdge`); people and the UI say connection. _Avoid_: arrow, link (a link is a link card).
 
 **Side**: where a connection meets a card: top, right, bottom or left.
 

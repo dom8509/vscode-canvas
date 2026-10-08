@@ -416,6 +416,23 @@ export function pointsOfEdges(data: CanvasData, edgeIds: Iterable<string>, skipL
   return data.nodes.filter((n) => isPoint(n) && ends.has(n.id));
 }
 
+/**
+ * What a copy of the selection holds: the selected cards and the connections between them, the points
+ * of selected connections, and a copied card's connections to a point, with the point. Undefined when
+ * that holds no card and no whole connection.
+ */
+export function copyFragment(data: CanvasData, selection: Set<string>): { nodes: CanvasNode[]; edges: CanvasEdge[] } | undefined {
+  const points = new Set(data.nodes.filter(isPoint).map((n) => n.id));
+  const cards = new Set(data.nodes.filter((n) => selection.has(n.id) && !points.has(n.id)).map((n) => n.id));
+  const carried = data.edges.filter(
+    (e) => selection.has(e.id) || (cards.has(e.fromNode) && points.has(e.toNode)) || (cards.has(e.toNode) && points.has(e.fromNode)),
+  );
+  const ids = new Set([...cards, ...pointsOfEdges(data, carried.map((e) => e.id)).map((n) => n.id)]);
+  const nodes = data.nodes.filter((n) => ids.has(n.id));
+  const edges = data.edges.filter((e) => ids.has(e.fromNode) && ids.has(e.toNode));
+  return cards.size || edges.length ? { nodes, edges } : undefined;
+}
+
 /** Where a dragged end lands: a card at one of its sides, or a free end at a spot. */
 export type EndTarget = { node: string; side: Side } | { at: { x: number; y: number } };
 

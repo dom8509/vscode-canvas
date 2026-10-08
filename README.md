@@ -80,7 +80,7 @@ open format Obsidian uses, so the files work in both.
   or click the last pin again to end the line there. A pin on a card joins
   that end to the card. **Shift** gives 15° steps for each segment. A line
   with only its start pinned makes nothing; **Ctrl/Cmd+Z** drops an open
-  line. A bent connection is curved through its bends, or straight from bend
+  line and undoes nothing else. A bent connection is curved through its bends, or straight from bend
   to bend for the straight and right-angled path styles. Obsidian draws it
   straight from end to end.
 - **Pen:** pick the pen (**P**) and draw. Each stroke is smoothed, is its own

@@ -3,6 +3,7 @@ import {
   type CanvasData,
   type CanvasNode,
   bendsOf,
+  copyFragment,
   cssColor,
   isImagePath,
   isLocked,
@@ -344,5 +345,33 @@ describe("custom shapes", () => {
     expect(s.fill).toBe("semi");
     setNodeLook(s, { fill: "none" });
     expect("fill" in s).toBe(false);
+  });
+});
+
+describe("copyFragment", () => {
+  const card = (id: string) => ({ id, type: "text" as const, text: "", x: 0, y: 0, width: 10, height: 10 });
+  const p1 = pointNodeAt({ x: 100, y: 0 });
+  const p2 = pointNodeAt({ x: 200, y: 0 });
+  const data: CanvasData = {
+    nodes: [card("a"), card("b"), p1, p2],
+    edges: [
+      { id: "ab", fromNode: "a", toNode: "b" },
+      { id: "ap", fromNode: "a", toNode: p1.id },
+      { id: "pp", fromNode: p1.id, toNode: p2.id },
+    ],
+  };
+  const ids = (f: ReturnType<typeof copyFragment>) => f && [f.nodes.map((n) => n.id), f.edges.map((e) => e.id)];
+
+  it("brings a copied card's connection to a free end, with the point", () => {
+    expect(ids(copyFragment(data, new Set(["a"])))).toEqual([["a", p1.id], ["ap"]]);
+  });
+
+  it("brings the points of a selected free connection", () => {
+    expect(ids(copyFragment(data, new Set(["pp"])))).toEqual([[p1.id, p2.id], ["pp"]]);
+  });
+
+  it("holds nothing for a connection whose card is not copied", () => {
+    expect(copyFragment(data, new Set(["ap"]))).toBeUndefined();
+    expect(copyFragment(data, new Set(["ab"]))).toBeUndefined();
   });
 });

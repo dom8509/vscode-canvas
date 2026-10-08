@@ -2,6 +2,7 @@ import {
   type CanvasData,
   type CanvasEdge,
   bendsOf,
+  copyFragment,
   type CanvasNode,
   type EdgeStyle,
   type NodeLook,
@@ -165,13 +166,13 @@ app.innerHTML = `
       <div id="groups"></div>
       <svg id="edges"></svg>
       <div id="nodes"></div>
-      <svg id="ink"></svg>
+      <svg id="pen-layer"></svg>
       <div id="labels"></div>
       <div id="selection-box" hidden></div>
       <svg id="guides"></svg>
     </div>
     <div id="marquee" hidden></div>
-    <div id="empty-hint" hidden>Double-click to write · T text · R O shapes · A arrow · P pen · drop files here · ? shortcuts</div>
+    <div id="empty-hint" hidden>Double-click to write · T text · R O shapes · A L arrow, line · P pen · E eraser · drop files here · ? shortcuts</div>
   </div>
   <div id="error" hidden>
     <p></p>
@@ -253,7 +254,7 @@ const edgesLayer = document.getElementById("edges") as unknown as SVGSVGElement;
 const labelsLayer = document.getElementById("labels")!;
 const guidesLayer = document.getElementById("guides") as unknown as SVGSVGElement;
 /** The live line of the pen, above the cards. */
-const inkLayer = document.getElementById("ink") as unknown as SVGSVGElement;
+const penLayer = document.getElementById("pen-layer") as unknown as SVGSVGElement;
 const selectionBox = document.getElementById("selection-box")!;
 const marquee = document.getElementById("marquee")!;
 const errorBox = document.getElementById("error")!;
@@ -525,10 +526,10 @@ function placeNode(el: HTMLElement, node: CanvasNode): void {
   else el.style.removeProperty("--text-scale");
   if (el.dataset.drawn) drawOutline(el, node);
   // While a stroke is resized its line stretches with the box; its points are rewritten on release.
-  const ink = el.querySelector(":scope > .ink");
-  if (ink) {
-    ink.setAttribute("width", String(node.width));
-    ink.setAttribute("height", String(node.height));
+  const drawn = el.querySelector(":scope > .stroke-svg");
+  if (drawn) {
+    drawn.setAttribute("width", String(node.width));
+    drawn.setAttribute("height", String(node.height));
   }
 }
 
@@ -557,7 +558,7 @@ function renderStroke(el: HTMLElement, node: CanvasNode): void {
   const d = closed && node.sharp === true ? "M " + points.map((p) => `${p.x} ${p.y}`).join(" L ") + " Z" : smoothPath(points, closed);
   const line = points.length > 1 ? sketched(d, seedOf(node.id), styleOf(node)) : d;
   const width = WIDTHS[nodeLook(node).strokeWidth];
-  el.innerHTML = `<svg class="ink" viewBox="0 0 ${node.width} ${node.height}" width="${node.width}" height="${node.height}" preserveAspectRatio="none" style="--ink-width: ${width}px">
+  el.innerHTML = `<svg class="stroke-svg" viewBox="0 0 ${node.width} ${node.height}" width="${node.width}" height="${node.height}" preserveAspectRatio="none" style="--stroke-px: ${width}px">
     ${closed ? `<path class="outline" d="${d}"/>` : ""}<path class="hit" d="${d}"/><path class="line" d="${line}"/></svg>`;
 }
 
@@ -1121,6 +1122,11 @@ function moveCardsTo(cards: CanvasNode[], place: Rect[]): void {
       m.x += dx;
       m.y += dy;
     }
+    // A connection carried whole by a group keeps its bends in place along it.
+    const inside = new Set([n.id, ...carried.map((c) => c.id)]);
+    for (const e of data.edges) {
+      if (!isLocked(e) && inside.has(e.fromNode) && inside.has(e.toNode)) setBends(e, bendsOf(e).map((q) => ({ x: q.x + dx, y: q.y + dy })));
+    }
   });
   if (moved.size) commit();
 }
@@ -1163,21 +1169,8 @@ function setColor(color: string): void {
 
 // ---------------------------------------------------------------- copy and paste
 
-/**
- * What a copy of the selection holds: the selected cards and the connections between them, the
- * points of selected connections, and a copied card's connections to a point, with the point.
- */
 function selectionFragment(): { nodes: CanvasNode[]; edges: CanvasEdge[] } | undefined {
-  const cards = new Set(selectedNodes().map((n) => n.id));
-  const toPoint = (id: string) => isPoint(nodeById(id) ?? ({} as CanvasNode));
-  const carried = data.edges.filter(
-    (e) => selection.has(e.id) || (cards.has(e.fromNode) && toPoint(e.toNode)) || (cards.has(e.toNode) && toPoint(e.fromNode)),
-  );
-  const ids = new Set([...cards, ...pointsOfEdges(data, carried.map((e) => e.id)).map((n) => n.id)]);
-  const nodes = data.nodes.filter((n) => ids.has(n.id));
-  if (nodes.length === 0) return undefined;
-  const edges = data.edges.filter((e) => ids.has(e.fromNode) && ids.has(e.toNode));
-  return { nodes, edges };
+  return copyFragment(data, selection);
 }
 
 function copySelection(): string | undefined {
@@ -1676,7 +1669,7 @@ function startPlacing(e: PointerEvent, p: Point): void {
     const color = cssColor(nodeDefaults.color);
     if (color) preview.style.stroke = color;
     preview.style.strokeWidth = `${WIDTHS[nodeDefaults.strokeWidth ?? "normal"]}px`;
-    inkLayer.append(preview);
+    penLayer.append(preview);
     drag = { kind: "pen", points: [p], preview };
     viewport.setPointerCapture(e.pointerId);
     return;
@@ -1711,7 +1704,10 @@ const ERASE_PX = 8;
 
 /** Fades the strokes the eraser's path touches; they go when it is released. */
 function erase(d: { ids: Set<string> }, path: Point[]): void {
+  // A locked connection cannot go, so neither can the custom shape it holds.
+  const held = new Set(data.edges.filter(isLocked).flatMap((e) => [e.fromNode, e.toNode]));
   for (const id of strokesTouched(data.nodes, path, ERASE_PX / view.zoom)) {
+    if (held.has(id)) continue;
     d.ids.add(id);
     nodeElement(id)?.classList.add("fading");
   }
@@ -2276,7 +2272,11 @@ document.addEventListener("keydown", (e) => {
       e.preventDefault();
       return endPinned();
     }
-    if ((e.ctrlKey || e.metaKey) && key === "z") dropPinned();
+    // Undo or redo drops the open line and stops there: nothing of it was written yet.
+    if ((e.ctrlKey || e.metaKey) && (key === "z" || key === "y")) {
+      e.preventDefault();
+      return dropPinned();
+    }
   }
   if (key === " " && !spaceHeld) {
     spaceHeld = true;
@@ -2681,9 +2681,11 @@ app.addEventListener("click", (e) => {
       return requestExport("svg");
     case "undo":
       nudges.flush();
+      dropPinned();
       return post({ type: "undo" });
     case "redo":
       nudges.flush();
+      dropPinned();
       return post({ type: "redo" });
     case "help":
       return toggleShortcutPanel();
@@ -2777,8 +2779,9 @@ window.addEventListener("message", (e: MessageEvent<HostMessage>) => {
   const msg = e.data;
   switch (msg.type) {
     case "load": {
-      // A change from outside (undo from the menu, another editor) wins over a nudge not yet written.
+      // A change from outside (undo from the menu, another editor) wins over a nudge not yet written, and over an open line.
       nudges.cancel();
+      dropPinned();
       try {
         data = parseCanvas(msg.text);
       } catch (err) {
@@ -2811,7 +2814,9 @@ window.addEventListener("message", (e: MessageEvent<HostMessage>) => {
       placeDropped(msg.items, msg);
       break;
     case "export":
-      void exportCanvas(msg);
+      exportCanvas(msg).catch((err: unknown) =>
+        post({ type: "notify", text: `The export failed: ${(err as Error)?.message || err}. A smaller scale may help.` }),
+      );
       break;
     case "inlined":
       inlineWaiter?.(msg.data);
