@@ -59,6 +59,8 @@ Obsidian shows all three as plain text cards.
 
 **Commit**: the webview writing the whole canvas back to the document. The document is the state; undo and redo are VS Code's.
 
+**Shortcut overview**: the panel that lists every key, grouped by tools, editing, view and navigation. Opened with `?` or the button in the zoom bar.
+
 **Properties panel**: the panel on the left that shows and sets the look of the selection.
 
 **Bottom toolbar**: the row of buttons that picks a tool and adds cards, shapes, text, files, images, links and groups.

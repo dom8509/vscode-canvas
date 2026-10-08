@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SHORTCUTS, keyText, matchesShortcut, shortcut } from "../webview/shortcuts";
+import { SHORTCUTS, keyText, matchesShortcut, shortcut, shortcutOverview } from "../webview/shortcuts";
 import { TOOLBAR_BUTTONS } from "../webview/toolbar";
 
 const press = (key: string, more: Partial<KeyboardEvent> = {}) =>
@@ -42,5 +42,14 @@ describe("shortcuts", () => {
   it("matches by the typed key or by the physical key, so other layouts work", () => {
     expect(matchesShortcut("fit", press("!", { shiftKey: true, code: "Digit1" }))).toBe(true);
     expect(matchesShortcut("help", press("?", { shiftKey: true, code: "Minus" }))).toBe(true);
+  });
+});
+
+describe("shortcutOverview", () => {
+  it("lists every key under tools, editing, view or navigation", () => {
+    const overview = shortcutOverview();
+    expect(overview.map((g) => g.title)).toEqual(["Tools", "Editing", "View", "Navigation"]);
+    expect(overview.flatMap((g) => g.shortcuts).length).toBe(SHORTCUTS.length);
+    for (const g of overview) expect(g.shortcuts.length, g.title).toBeGreaterThan(0);
   });
 });

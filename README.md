@@ -13,6 +13,9 @@ open format Obsidian uses, so the files work in both.
   (**T**), shapes (**R** rectangle, **O** ellipse), card (**N**) and group
   (**G**). **Escape** goes back to the select tool, or clears the selection
   when it is on already. No key fires while you type.
+- **Keys:** press **?**, or the *?* button at the top right, for a list of
+  every key. **Escape** or the button closes it. An empty canvas says how to
+  start.
 - **Create a canvas:** run *Canvas: New Canvas* from the Command Palette, or
   right-click a folder in the Explorer. Any `*.canvas` file opens on the canvas.
 - **Cards:** the card button in the bottom toolbar adds a card to write in

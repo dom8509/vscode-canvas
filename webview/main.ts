@@ -76,6 +76,7 @@ import { defaultShapeSize, shapeMarks, shapePath } from "./shapes";
 import { icon, shapeIcon, title } from "./icons";
 import { SELECT, type Tool, showTool, toolbarHtml } from "./toolbar";
 import { matchesShortcut, tooltip } from "./shortcuts";
+import { isShortcutPanelOpen, shortcutPanelHtml, toggleShortcutPanel } from "./shortcutPanel";
 
 declare function acquireVsCodeApi(): {
   postMessage(msg: WebviewMessage): void;
@@ -130,6 +131,7 @@ app.innerHTML = `
       <div id="labels"></div>
     </div>
     <div id="marquee" hidden></div>
+    <div id="empty-hint" hidden>Double-click to write · T text · R O shapes · drop files here · ? shortcuts</div>
   </div>
   <div id="error" hidden>
     <p></p>
@@ -189,7 +191,9 @@ app.innerHTML = `
     <button data-action="canvas-style" id="canvas-style"></button>
     <button data-action="undo" title="${tooltip("undo")}">${icon("undo")}</button>
     <button data-action="redo" title="${tooltip("redo")}">${icon("redo")}</button>
+    <button data-action="help" title="${tooltip("help")}">${icon("help")}</button>
   </div>
+  ${shortcutPanelHtml()}
 `;
 
 const viewport = document.getElementById("viewport")!;
@@ -205,6 +209,7 @@ const headMenu = document.getElementById("head-menu")!;
 const shapeMenu = document.getElementById("shape-menu")!;
 const toolbar = document.getElementById("toolbar")!;
 const zoomLevel = document.getElementById("zoom-level")!;
+const emptyHint = document.getElementById("empty-hint")!;
 
 
 /** The SVG stroke settings of an edge's line. */
@@ -348,6 +353,7 @@ function fitToContent(nodes: CanvasNode[] = data.nodes): void {
 // ---------------------------------------------------------------- rendering
 
 function render(): void {
+  emptyHint.hidden = data.nodes.length > 0;
   renderNodes();
   renderEdges();
   updateColorbar();
@@ -1496,6 +1502,8 @@ document.addEventListener("keydown", (e) => {
     duplicateSelection();
   } else if (is("escape")) {
     escape();
+  } else if (is("help")) {
+    toggleShortcutPanel();
   } else if (is("select")) {
     setTool(SELECT);
   } else if (is("hand")) {
@@ -1539,6 +1547,7 @@ document.addEventListener("keydown", (e) => {
 
 /** Escape closes an open menu first, then goes back to the select tool, then clears the selection. */
 function escape(): void {
+  if (isShortcutPanelOpen()) return toggleShortcutPanel(false);
   if (!headMenu.hidden) return closeHeadMenu();
   if (!shapeMenu.hidden) {
     shapeMenu.hidden = true;
@@ -1756,6 +1765,8 @@ app.addEventListener("click", (e) => {
       return post({ type: "undo" });
     case "redo":
       return post({ type: "redo" });
+    case "help":
+      return toggleShortcutPanel();
     case "source":
       return post({ type: "showSource" });
   }

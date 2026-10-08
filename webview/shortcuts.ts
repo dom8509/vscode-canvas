@@ -109,3 +109,8 @@ function matchesKeys(keys: string, e: KeyboardEvent): boolean {
 export function matchesShortcut(id: string, e: KeyboardEvent): boolean {
   return shortcut(id).keys.some((k) => matchesKeys(k, e));
 }
+
+/** The shortcuts in their groups, in the order the shortcut overview shows them. */
+export function shortcutOverview(): { title: string; shortcuts: Shortcut[] }[] {
+  return SHORTCUT_GROUPS.map(({ group, title }) => ({ title, shortcuts: SHORTCUTS.filter((s) => s.group === group) }));
+}
