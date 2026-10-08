@@ -191,7 +191,9 @@ button {
 }
 
 /* A stroke the eraser touched: it goes when the eraser is released. */
-.node.fading {
+.node.fading,
+.edge.fading,
+.edge-label.fading {
   opacity: 0.25;
 }
 
@@ -271,6 +273,8 @@ button {
 
 .node:not(.selected) .content {
   user-select: none;
+  /* The scrollbar shows only on a selected card. */
+  overflow: hidden;
 }
 
 .node.editing .content {

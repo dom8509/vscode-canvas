@@ -1,7 +1,7 @@
 // Pen strokes: smoothing, their box, and hitting them. A stroke's points are
 // relative to its box; the box is the node's x, y, width and height.
 
-import { type CanvasNode, isClosed, isLocked, isStroke, rotationOf, strokePoints } from "../src/jsonCanvas";
+import { type CanvasNode, isLocked, isPoint, isStroke, rotationOf, strokePoints } from "../src/jsonCanvas";
 import { type Point, type Rect, center, rotatePoint } from "./geometry";
 
 /** The points of a line with the ones within `tolerance` of it dropped (Ramer–Douglas–Peucker). The ends stay. */
@@ -107,18 +107,46 @@ export function hitInside(node: CanvasNode, p: Point): boolean {
   return inside;
 }
 
-/** The ids of the unlocked strokes that the pointer's path (one point, or the segments between points) passes within `tolerance` of. */
-export function strokesTouched(nodes: CanvasNode[], path: Point[], tolerance: number): string[] {
+/** A connection for the eraser: its id and its line as drawn, in canvas coordinates. */
+export interface EdgeLine {
+  id: string;
+  points: Point[];
+  locked?: boolean;
+}
+
+/**
+ * The ids of what the pointer's path (one point, or the segments between points) touches within
+ * `tolerance`: strokes and connections by their line, cards by their box, turned as drawn, groups by
+ * their frame. Points and locked elements are passed by.
+ */
+export function touched(nodes: CanvasNode[], edges: EdgeLine[], path: Point[], tolerance: number): string[] {
   const segments: [Point, Point][] = path.length === 1 ? [[path[0]!, path[0]!]] : path.slice(1).map((p, i) => [path[i]!, p]);
-  return nodes
-    // A custom shape someone wrote in is kept.
-    .filter((n) => isStroke(n) && !isLocked(n) && !(isClosed(n) && n.type === "text" && n.text.trim()))
-    .filter((n) => {
-      const points = worldPoints(n);
-      const lines: [Point, Point][] = points.length === 1 ? [[points[0]!, points[0]!]] : points.slice(1).map((p, i) => [points[i]!, p]);
-      return lines.some(([a, b]) => segments.some(([c, d]) => segmentDistance(a, b, c, d) <= tolerance));
-    })
-    .map((n) => n.id);
+  const nearLine = (points: Point[]) => {
+    const lines: [Point, Point][] = points.length === 1 ? [[points[0]!, points[0]!]] : points.slice(1).map((p, i) => [points[i]!, p]);
+    return lines.some(([a, b]) => segments.some(([c, d]) => segmentDistance(a, b, c, d) <= tolerance));
+  };
+  const hit = (n: CanvasNode): boolean => {
+    if (isStroke(n)) return nearLine(worldPoints(n));
+    // In the card's own frame its box is upright.
+    const c = center(n);
+    const turn = rotationOf(n);
+    const local = segments.map(([a, b]) => [rotatePoint(a, c, -turn), rotatePoint(b, c, -turn)] as [Point, Point]);
+    const corners = [
+      { x: n.x, y: n.y },
+      { x: n.x + n.width, y: n.y },
+      { x: n.x + n.width, y: n.y + n.height },
+      { x: n.x, y: n.y + n.height },
+    ];
+    const frame = corners.map((p, i) => [p, corners[(i + 1) % 4]!] as [Point, Point]);
+    const onFrame = local.some(([a, b]) => frame.some(([p, q]) => segmentDistance(a, b, p, q) <= tolerance));
+    if (n.type === "group") return onFrame;
+    const inside = (p: Point) => p.x >= n.x && p.x <= n.x + n.width && p.y >= n.y && p.y <= n.y + n.height;
+    return onFrame || local.some(([a]) => inside(a));
+  };
+  return [
+    ...nodes.filter((n) => !isLocked(n) && !isPoint(n) && hit(n)).map((n) => n.id),
+    ...edges.filter((e) => !e.locked && nearLine(e.points)).map((e) => e.id),
+  ];
 }
 
 /** The shortest distance between the segments `ab` and `cd`: 0 when they cross. */

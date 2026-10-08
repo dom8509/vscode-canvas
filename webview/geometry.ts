@@ -135,15 +135,16 @@ export function edgePath(a: Point, sideA: Side | null, b: Point, sideB: Side | n
 
 /**
  * The path of a connection through its bends, from `points[0]` to the last point. Curved goes
- * smoothly through every point (Catmull-Rom); straight and elbow join them with straight segments.
+ * smoothly through every point (Catmull-Rom); straight joins them with straight segments, elbow with
+ * right angles, both with round corners.
  */
 export function bentPath(points: Point[], style: PathStyle): EdgeCurve {
-  const n = points.length;
   const a = points[0]!;
-  const b = points[n - 1]!;
   let d: string;
   let line: Point[];
+  let route = points;
   if (style === "curved") {
+    const n = points.length;
     d = `M ${a.x} ${a.y}`;
     line = [a];
     for (let i = 0; i < n - 1; i++) {
@@ -157,17 +158,52 @@ export function bentPath(points: Point[], style: PathStyle): EdgeCurve {
       for (let k = 1; k <= 16; k++) line.push(bezierAt(p1, c1, c2, p2, k / 16));
     }
   } else {
-    d = "M " + points.map((p) => `${p.x} ${p.y}`).join(" L ");
-    line = points;
+    route = style === "elbow" ? rightAngles(points) : points;
+    d = roundedPolyline(route, 16);
+    line = route;
   }
+  const n = route.length;
+  const b = route[n - 1]!;
   return {
     start: a,
     end: b,
     d,
     mid: pointAlong(line, 0.5),
-    endDir: unit({ x: b.x - points[n - 2]!.x, y: b.y - points[n - 2]!.y }, { x: 1, y: 0 }),
-    startDir: unit({ x: a.x - points[1]!.x, y: a.y - points[1]!.y }, { x: -1, y: 0 }),
+    endDir: unit({ x: b.x - route[n - 2]!.x, y: b.y - route[n - 2]!.y }, { x: 1, y: 0 }),
+    startDir: unit({ x: a.x - route[1]!.x, y: a.y - route[1]!.y }, { x: -1, y: 0 }),
   };
+}
+
+/** The points with a corner put between each two that are not in line: across first, then up or down. */
+function rightAngles(points: Point[]): Point[] {
+  const out: Point[] = [points[0]!];
+  for (let i = 1; i < points.length; i++) {
+    const p = out[out.length - 1]!;
+    const q = points[i]!;
+    if (p.x !== q.x && p.y !== q.y) out.push({ x: q.x, y: p.y });
+    out.push(q);
+  }
+  return out;
+}
+
+/** SVG path data of a polyline whose corners are rounded with a radius of up to `radius`. */
+function roundedPolyline(points: Point[], radius: number): string {
+  const r = (v: number) => Math.round(v * 100) / 100;
+  let d = `M ${r(points[0]!.x)} ${r(points[0]!.y)}`;
+  for (let i = 1; i < points.length - 1; i++) {
+    const prev = points[i - 1]!;
+    const p = points[i]!;
+    const next = points[i + 1]!;
+    const lin = Math.hypot(p.x - prev.x, p.y - prev.y);
+    const lout = Math.hypot(next.x - p.x, next.y - p.y);
+    const k = Math.min(radius, lin / 2, lout / 2);
+    if (k < 1e-6) continue;
+    const from = { x: p.x - ((p.x - prev.x) / lin) * k, y: p.y - ((p.y - prev.y) / lin) * k };
+    const to = { x: p.x + ((next.x - p.x) / lout) * k, y: p.y + ((next.y - p.y) / lout) * k };
+    d += ` L ${r(from.x)} ${r(from.y)} Q ${r(p.x)} ${r(p.y)} ${r(to.x)} ${r(to.y)}`;
+  }
+  const last = points[points.length - 1]!;
+  return `${d} L ${r(last.x)} ${r(last.y)}`;
 }
 
 function bezierAt(p0: Point, p1: Point, p2: Point, p3: Point, t: number): Point {

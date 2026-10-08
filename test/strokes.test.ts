@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CanvasNode } from "../src/jsonCanvas";
-import { closes, hitInside, hitStroke, scalePoints, simplify, smoothPath, strokeBox, strokesTouched } from "../webview/strokes";
+import { closes, hitInside, hitStroke, scalePoints, simplify, smoothPath, strokeBox, touched } from "../webview/strokes";
 
 const stroke = (points: number[], more: Partial<CanvasNode> = {}): CanvasNode =>
   ({ id: "s", type: "text", text: "", shape: "draw", x: 100, y: 100, width: 100, height: 100, points, ...more }) as CanvasNode;
@@ -77,33 +77,45 @@ describe("hitStroke", () => {
   });
 });
 
-describe("strokesTouched", () => {
+describe("touched", () => {
   const card = (id: string, more: Partial<CanvasNode> = {}): CanvasNode =>
     ({ id, type: "text", text: "", x: 100, y: 100, width: 100, height: 100, ...more }) as CanvasNode;
   // A level stroke from (100, 150) to (200, 150).
   const level = stroke([0, 50, 100, 50], { id: "level" });
 
-  it("finds the strokes the path passes within the tolerance", () => {
+  it("finds a stroke the path passes within the tolerance", () => {
     const far = stroke([0, 0, 100, 0], { id: "far", y: 400 });
-    expect(strokesTouched([level, far], [{ x: 150, y: 155 }], 8)).toEqual(["level"]);
-    expect(strokesTouched([level, far], [{ x: 150, y: 170 }], 8)).toEqual([]);
+    expect(touched([level, far], [], [{ x: 150, y: 155 }], 8)).toEqual(["level"]);
+    expect(touched([level, far], [], [{ x: 150, y: 170 }], 8)).toEqual([]);
   });
 
   it("finds a stroke crossed between two pointer samples", () => {
-    expect(strokesTouched([level], [{ x: 150, y: 100 }, { x: 150, y: 200 }], 8)).toEqual(["level"]);
+    expect(touched([level], [], [{ x: 150, y: 100 }, { x: 150, y: 200 }], 8)).toEqual(["level"]);
   });
 
-  it("passes by cards, shapes, free text, groups, points and locked strokes", () => {
-    const others = [
-      card("card"),
-      card("shape", { shape: "rectangle" }),
-      card("free", { shape: "text" }),
-      card("group", { type: "group" }),
-      card("point", { shape: "point", x: 150, y: 150, width: 1, height: 1 }),
-      stroke([0, 50, 100, 50], { id: "locked", locked: true }),
-      stroke([0, 50, 100, 50, 50, 0, 0, 50], { id: "written", closed: true, text: "Hi" }),
-    ];
-    expect(strokesTouched(others, [{ x: 150, y: 100 }, { x: 150, y: 200 }], 8)).toEqual([]);
+  it("finds cards, shapes and text the path enters, turned or not", () => {
+    const shape = card("shape", { shape: "rectangle" });
+    const turned = card("turned", { x: 300, width: 200, height: 20, rotation: 90 });
+    expect(touched([card("c"), shape], [], [{ x: 50, y: 150 }, { x: 120, y: 150 }], 4)).toEqual(["c", "shape"]);
+    expect(touched([turned], [], [{ x: 400, y: 30 }], 4)).toEqual(["turned"]);
+    expect(touched([turned], [], [{ x: 330, y: 110 }], 4)).toEqual([]);
+  });
+
+  it("takes a group only by its frame, not by its inside", () => {
+    const group = card("g", { type: "group" });
+    expect(touched([group], [], [{ x: 150, y: 150 }], 4)).toEqual([]);
+    expect(touched([group], [], [{ x: 150, y: 90 }, { x: 150, y: 120 }], 4)).toEqual(["g"]);
+  });
+
+  it("finds connections by their line", () => {
+    const line = { id: "e", points: [{ x: 0, y: 0 }, { x: 100, y: 0 }] };
+    expect(touched([], [line], [{ x: 50, y: -20 }, { x: 50, y: 20 }], 4)).toEqual(["e"]);
+    expect(touched([], [line], [{ x: 50, y: 20 }], 4)).toEqual([]);
+  });
+
+  it("passes by points and locked elements", () => {
+    const others = [card("point", { shape: "point", x: 150, y: 150, width: 1, height: 1 }), card("locked", { locked: true })];
+    expect(touched(others, [{ id: "le", points: [{ x: 0, y: 150 }, { x: 300, y: 150 }], locked: true }], [{ x: 150, y: 140 }, { x: 150, y: 160 }], 8)).toEqual([]);
   });
 });
 

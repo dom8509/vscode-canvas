@@ -89,4 +89,4 @@ Obsidian shows all three as plain text cards.
 
 **Bottom toolbar**: the row of buttons that picks a tool and adds cards, shapes, text, files, images, links and groups.
 
-**Tool**: what a press on the canvas does. Code: `Tool`. The **select tool** (V) selects, moves and resizes; the **hand tool** (H) pans with a left drag; the text and shape tools place free text and shapes. The **pen** (P) draws strokes; the **eraser** (E) deletes the strokes it is dragged over. The **arrow tool** (A) and the **line tool** (L) draw connections anywhere, with an arrow head at the end or none. Code: `{ kind: "connection" }`.
+**Tool**: what a press on the canvas does. Code: `Tool`. The **select tool** (V) selects, moves and resizes; the **hand tool** (H) pans with a left drag; the text and shape tools place free text and shapes. The **pen** (P) draws strokes; the **eraser** (E) deletes what it is dragged over. The **arrow tool** (A) and the **line tool** (L) draw connections anywhere, with an arrow head at the end or none. Code: `{ kind: "connection" }`.

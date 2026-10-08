@@ -92,7 +92,7 @@ import {
   setDrawingStyle,
 } from "./drawingStyles";
 import { sketchPath } from "./sketch";
-import { closes, scalePoints, simplify, smoothPath, strokeBox, strokesTouched } from "./strokes";
+import { closes, scalePoints, simplify, smoothPath, type EdgeLine, strokeBox, touched } from "./strokes";
 import { escapeHtml, renderMarkdown, stripFrontMatter } from "./markdown";
 import { defaultShapeSize, shapeMarks, shapePath } from "./shapes";
 import { icon, shapeIcon, title } from "./icons";
@@ -236,7 +236,6 @@ app.innerHTML = `
     <button data-action="zoom-reset" id="zoom-level" title="${tooltip("zoomReset", "Reset zoom")}">100%</button>
     <button data-action="zoom-out" title="${tooltip("zoomOut")}">${icon("minus")}</button>
     <button data-action="fit" title="${tooltip("fit")}">${icon("fit")}</button>
-    <button data-action="canvas-style" id="canvas-style"></button>
     <button data-action="export-png" class="export-button" title="Export as PNG">PNG</button>
     <button data-action="export-svg" class="export-button" title="Export as SVG">SVG</button>
     <button data-action="undo" title="${tooltip("undo")}">${icon("undo")}</button>
@@ -433,7 +432,6 @@ function render(): void {
   renderEdges();
   updateSelectionBox();
   updateColorbar();
-  updateCanvasStyleButton();
 }
 
 function renderNodes(): void {
@@ -533,20 +531,6 @@ function placeNode(el: HTMLElement, node: CanvasNode): void {
   }
 }
 
-/** Rough.js paths by seed, style and path data: a canvas full of strokes is redrawn on every commit. */
-const sketches = new Map<string, string>();
-
-function sketched(d: string, seed: number, style: DrawingStyleName): string {
-  const key = `${seed} ${style} ${d}`;
-  let out = sketches.get(key);
-  if (out === undefined) {
-    if (sketches.size > 5000) sketches.clear();
-    out = sketchPath(d, seed, style);
-    sketches.set(key, out);
-  }
-  return out;
-}
-
 /**
  * A pen stroke: its line in its drawing style, and a wider invisible line that takes the clicks. A custom
  * shape adds its filled outline, smooth or, when closed from a pinned line, with straight sides.
@@ -556,7 +540,8 @@ function renderStroke(el: HTMLElement, node: CanvasNode): void {
   const points = strokePoints(node);
   const closed = isClosed(node);
   const d = closed && node.sharp === true ? "M " + points.map((p) => `${p.x} ${p.y}`).join(" L ") + " Z" : smoothPath(points, closed);
-  const line = points.length > 1 ? sketched(d, seedOf(node.id), styleOf(node)) : d;
+  // One smooth, unbroken line, as a pen draws it: no sketchy strokes.
+  const line = d;
   const width = WIDTHS[nodeLook(node).strokeWidth];
   el.innerHTML = `<svg class="stroke-svg" viewBox="0 0 ${node.width} ${node.height}" width="${node.width}" height="${node.height}" preserveAspectRatio="none" style="--stroke-px: ${width}px">
     ${closed ? `<path class="outline" d="${d}"/>` : ""}<path class="hit" d="${d}"/><path class="line" d="${line}"/></svg>`;
@@ -991,20 +976,6 @@ function setSelectedDrawingStyle(name: DrawingStyleName): void {
   commit();
 }
 
-/** Switches the canvas to the next drawing style. Its elements with a style of their own keep theirs. */
-function cycleCanvasStyle(): void {
-  const names = DRAWING_STYLE_NAMES;
-  data.style = names[(names.indexOf(canvasStyle()) + 1) % names.length];
-  commit();
-}
-
-function updateCanvasStyleButton(): void {
-  const button = document.getElementById("canvas-style")!;
-  const style = canvasStyle();
-  button.innerHTML = drawingStyleIcon(style);
-  button.title = `Drawing style of this canvas: ${title(style)} (click to change)`;
-}
-
 /** Sets part of the look of the selected edges, and of new ones. */
 function setSelectedEdgeStyle(style: Partial<EdgeStyle>): void {
   edgeDefaults = { ...edgeDefaults, ...style };
@@ -1382,7 +1353,7 @@ type Drag =
   /** The pen: the pointer's path in canvas coordinates. */
   | { kind: "pen"; points: Point[]; preview: SVGPathElement }
   /** The eraser: the strokes it touched so far, and where the pointer was last. */
-  | { kind: "erase"; ids: Set<string>; last: Point }
+  | { kind: "erase"; ids: Set<string>; last: Point; lines: EdgeLine[] }
   | { kind: "text"; start: Point };
 
 let drag: Drag | null = null;
@@ -1675,7 +1646,7 @@ function startPlacing(e: PointerEvent, p: Point): void {
     return;
   }
   if (tool.kind === "eraser") {
-    drag = { kind: "erase", ids: new Set(), last: p };
+    drag = { kind: "erase", ids: new Set(), last: p, lines: edgeLines() };
     erase(drag, [p]);
     viewport.setPointerCapture(e.pointerId);
     return;
@@ -1702,14 +1673,29 @@ function startPlacing(e: PointerEvent, p: Point): void {
 /** How near, in screen pixels, the eraser must pass a stroke to take it. */
 const ERASE_PX = 8;
 
-/** Fades the strokes the eraser's path touches; they go when it is released. */
-function erase(d: { ids: Set<string> }, path: Point[]): void {
-  // A locked connection cannot go, so neither can the custom shape it holds.
+/** Each connection's line as drawn, in short steps, for the eraser. */
+function edgeLines(): EdgeLine[] {
+  return data.edges.flatMap((edge) => {
+    const path = world.querySelector<SVGPathElement>(`.edge[data-id="${CSS.escape(edge.id)}"] .hit`);
+    if (!path) return [];
+    const length = path.getTotalLength();
+    const steps = Math.max(1, Math.ceil(length / 8));
+    const points = Array.from({ length: steps + 1 }, (_, k) => {
+      const q = path.getPointAtLength((length * k) / steps);
+      return { x: q.x, y: q.y };
+    });
+    return [{ id: edge.id, points, locked: isLocked(edge) }];
+  });
+}
+
+/** Fades what the eraser's path touches; it goes when the eraser is released. */
+function erase(d: { ids: Set<string>; lines: EdgeLine[] }, path: Point[]): void {
+  // A locked connection cannot go, so neither can a card it holds.
   const held = new Set(data.edges.filter(isLocked).flatMap((e) => [e.fromNode, e.toNode]));
-  for (const id of strokesTouched(data.nodes, path, ERASE_PX / view.zoom)) {
-    if (held.has(id)) continue;
+  for (const id of touched(data.nodes, d.lines, path, ERASE_PX / view.zoom)) {
+    if (held.has(id) || d.ids.has(id)) continue;
     d.ids.add(id);
-    nodeElement(id)?.classList.add("fading");
+    world.querySelectorAll(`[data-id="${CSS.escape(id)}"]`).forEach((el) => el.classList.add("fading"));
   }
 }
 
@@ -2116,16 +2102,16 @@ function endDrag(e: PointerEvent): void {
       break;
     case "erase": {
       if (!d.ids.size) break;
-      // Strokes have no connections, but a custom shape may: they go with it.
+      // A card's connections go with it; a locked one kept its card from being touched.
       data.nodes = data.nodes.filter((n) => !d.ids.has(n.id));
-      data.edges = data.edges.filter((e) => !d.ids.has(e.fromNode) && !d.ids.has(e.toNode));
+      data.edges = data.edges.filter((e) => !d.ids.has(e.id) && !d.ids.has(e.fromNode) && !d.ids.has(e.toNode));
       for (const id of d.ids) selection.delete(id);
       commit();
       break;
     }
     case "pen": {
       d.preview.remove();
-      const drawn = simplify(d.points, 0.5 / view.zoom);
+      const drawn = simplify(d.points, 1 / view.zoom);
       // Ends that meet close the stroke into a custom shape: the last point joins the first.
       const closed = closes(drawn, 12 / view.zoom, 16 / view.zoom);
       if (closed) drawn[drawn.length - 1] = { ...drawn[0]! };
@@ -2443,7 +2429,7 @@ function nudge(key: string, step: number): void {
 function escape(): void {
   if (drag?.kind === "erase") {
     // The eraser lets go: nothing is wiped.
-    world.querySelectorAll(".node.fading").forEach((el) => el.classList.remove("fading"));
+    world.querySelectorAll(".fading").forEach((el) => el.classList.remove("fading"));
     drag = null;
     return;
   }
@@ -2673,8 +2659,6 @@ app.addEventListener("click", (e) => {
       return zoomBy(1 / view.zoom);
     case "fit":
       return fitToContent();
-    case "canvas-style":
-      return cycleCanvasStyle();
     case "export-png":
       return requestExport("png");
     case "export-svg":
@@ -2827,13 +2811,11 @@ window.addEventListener("message", (e: MessageEvent<HostMessage>) => {
       themeSetting = msg.theme;
       applyPaper();
       if (loaded) render();
-      else updateCanvasStyleButton();
       break;
   }
 });
 
 applyView();
 applyPaper();
-updateCanvasStyleButton();
 showTool(toolbar, viewport, tool);
 post({ type: "ready" });

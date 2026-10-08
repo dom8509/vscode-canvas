@@ -80,15 +80,16 @@ open format Obsidian uses, so the files work in both.
   or click the last pin again to end the line there. A pin on a card joins
   that end to the card. **Shift** gives 15° steps for each segment. A line
   with only its start pinned makes nothing; **Ctrl/Cmd+Z** drops an open
-  line and undoes nothing else. A bent connection is curved through its bends, or straight from bend
-  to bend for the straight and right-angled path styles. Obsidian draws it
+  line and undoes nothing else. A bent connection is curved through its
+  bends; with the straight path style it runs straight from bend to bend,
+  with the right-angled one at right angles, both with round corners. Obsidian draws it
   straight from end to end.
-- **Pen:** pick the pen (**P**) and draw. Each stroke is smoothed, is its own
-  element and its own undo step; the pen stays on until **Escape**. Click a
+- **Pen:** pick the pen (**P**) and draw. Each stroke is one smooth,
+  unbroken line, is its own element and its own undo step; the pen stays on until **Escape**. Click a
   stroke's line to select it (a click inside a loop reaches what lies under
   it); then move, resize, turn, group, lock, copy or delete it like a card.
-  The properties panel sets a stroke's color, width (thin, normal, bold,
-  extra bold) and drawing style; the next stroke takes the color and width
+  The properties panel sets a stroke's color and width (thin, normal, bold,
+  extra bold); the next stroke takes the color and width
   you picked last.
   A stroke is saved as an empty card the size of the stroke with its points
   in it, so Obsidian shows an empty card there.
@@ -99,13 +100,13 @@ open format Obsidian uses, so the files work in both.
   properties panel sets its fill (none, light, solid; none at first), color,
   width and text; double-click its line, or press **Enter**, to write in it;
   connections join the sides of its box. A filled one is selected by a click
-  inside it, an unfilled one by its line. The eraser leaves a custom shape
-  with text in it alone. Obsidian shows a custom shape as a text card with
+  inside it, an unfilled one by its line. Obsidian shows a custom shape as a text card with
   its text.
-- **Eraser:** pick the eraser (**E**) and drag over strokes: each stroke it
-  passes fades, and goes when you let go, all in one undo step. **Escape**
-  while dragging keeps them. The eraser only wipes strokes, never cards,
-  shapes, text, groups, connections or a locked stroke.
+- **Eraser:** pick the eraser (**E**) and drag over the canvas: everything
+  it touches fades, and goes when you let go, all in one undo step: strokes,
+  cards, notes, shapes, text, connections, and groups by their frame. A card's
+  connections go with it. **Escape** while dragging keeps everything. Locked
+  elements stay, and so does a card with a locked connection.
 - **End handles:** a selected connection shows a round handle at each end.
   Drag one onto another card to join it there, or onto empty space to leave
   that end free. Each bend has a small square: drag it to move the bend. A
@@ -124,11 +125,10 @@ open format Obsidian uses, so the files work in both.
   [Rough.js](https://roughjs.com) in one of Excalidraw's three styles:
   *architect* (clean, technical lines), *artist* (lightly hand-drawn, the
   default) or *cartoonist* (very sketchy). The setting `canvas.drawingStyle`
-  sets it for all canvases; the wavy-line button at the top right sets it for
-  one canvas (`"style"` at the top of the file); the *Style* row in the
-  properties panel sets it for single cards and connections (`"style"` on
-  them). The most specific one wins. Pen strokes follow the drawing style
-  too. The data stays the same: only the drawing changes, and each element
+  sets it for all canvases, `"style"` at the top of a file for that canvas;
+  the *Style* row in the properties panel sets it for single cards and
+  connections (`"style"` on them). The most specific one wins. Pen strokes
+  stay smooth lines in every style. The data stays the same: only the drawing changes, and each element
   looks the same on every redraw.
 - **Properties:** select cards or connections and a panel on the left shows
   their properties, as in Excalidraw and tldraw: one of six colors or a custom one, and

@@ -120,9 +120,16 @@ describe("bentPath", () => {
     expect(c.d.match(/C/g)).toHaveLength(2);
   });
 
-  it("joins the points with straight segments for straight and elbow", () => {
-    expect(bentPath(points, "straight").d).toBe("M 0 0 L 100 0 L 100 100");
-    expect(bentPath(points, "elbow").d).toBe("M 0 0 L 100 0 L 100 100");
+  it("rounds the corners of straight segments", () => {
+    const d = bentPath(points, "straight").d;
+    expect(d.startsWith("M 0 0 L 84 0 Q 100 0 100 16")).toBe(true);
+    expect(d.endsWith("L 100 100")).toBe(true);
+  });
+
+  it("runs elbow segments at right angles, with round corners", () => {
+    const d = bentPath([{ x: 0, y: 0 }, { x: 100, y: 50 }, { x: 200, y: 50 }], "elbow").d;
+    expect(d).toContain("Q 100 0");
+    expect(d.endsWith("L 200 50")).toBe(true);
   });
 
   it("points the heads along the first and last segment", () => {
