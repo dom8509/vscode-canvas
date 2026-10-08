@@ -12,7 +12,8 @@ export type Tool =
   | { kind: "shape"; shape: ShapeKind }
   /** The arrow tool and the line tool: they draw connections, with an arrow head or none. */
   | { kind: "connection"; heads: "arrow" | "line" }
-  | { kind: "pen" };
+  | { kind: "pen" }
+  | { kind: "eraser" };
 
 export const SELECT: Tool = { kind: "select" };
 
@@ -32,6 +33,7 @@ export const TOOLBAR_BUTTONS: ToolbarButton[] = [
   { action: "arrow-tool", icon: "arrow", label: "Arrow: drag between cards or anywhere", shortcuts: ["arrow"] },
   { action: "line-tool", icon: "line", label: "Line: drag between cards or anywhere", shortcuts: ["line"] },
   { action: "pen-tool", icon: "pen", label: "Pen: draw freehand", shortcuts: ["pen"] },
+  { action: "eraser-tool", icon: "eraser", label: "Eraser: wipe strokes away", shortcuts: ["eraser"] },
   { action: "text", icon: "card", label: "Add card (or double-click the canvas)", shortcuts: ["card"] },
   { action: "file", icon: "file", label: "Add note or media from the workspace", shortcuts: [] },
   { action: "image", icon: "image", label: "Add image (or paste one)", shortcuts: [] },
@@ -61,7 +63,7 @@ export function toolbarHtml(): string {
 
 /** Marks the tool's button and sets the canvas cursor for it. */
 export function showTool(toolbar: HTMLElement, viewport: HTMLElement, tool: Tool): void {
-  viewport.classList.toggle("placing", tool.kind === "text" || tool.kind === "shape" || tool.kind === "connection" || tool.kind === "pen");
+  viewport.classList.toggle("placing", tool.kind === "text" || tool.kind === "shape" || tool.kind === "connection" || tool.kind === "pen" || tool.kind === "eraser");
   viewport.classList.toggle("hand", tool.kind === "hand");
   const active: Record<string, boolean> = {
     select: tool.kind === "select",
@@ -71,6 +73,7 @@ export function showTool(toolbar: HTMLElement, viewport: HTMLElement, tool: Tool
     "arrow-tool": tool.kind === "connection" && tool.heads === "arrow",
     "line-tool": tool.kind === "connection" && tool.heads === "line",
     "pen-tool": tool.kind === "pen",
+    "eraser-tool": tool.kind === "eraser",
   };
   for (const [action, on] of Object.entries(active)) {
     toolbar.querySelector(`[data-action="${action}"]`)!.classList.toggle("active", on);

@@ -88,7 +88,7 @@ import {
   setDrawingStyle,
 } from "./drawingStyles";
 import { sketchPath } from "./sketch";
-import { scalePoints, simplify, smoothPath, strokeBox } from "./strokes";
+import { scalePoints, simplify, smoothPath, strokeBox, strokesTouched } from "./strokes";
 import { escapeHtml, renderMarkdown, stripFrontMatter } from "./markdown";
 import { defaultShapeSize, shapeMarks, shapePath } from "./shapes";
 import { icon, shapeIcon, title } from "./icons";
@@ -1368,6 +1368,8 @@ type Drag =
   | { kind: "draw"; start: Point; shape: ShapeKind; preview: HTMLElement }
   /** The pen: the pointer's path in canvas coordinates. */
   | { kind: "pen"; points: Point[]; preview: SVGPathElement }
+  /** The eraser: the strokes it touched so far, and where the pointer was last. */
+  | { kind: "erase"; ids: Set<string>; last: Point }
   | { kind: "text"; start: Point };
 
 let drag: Drag | null = null;
@@ -1643,6 +1645,12 @@ function startPlacing(e: PointerEvent, p: Point): void {
     viewport.setPointerCapture(e.pointerId);
     return;
   }
+  if (tool.kind === "eraser") {
+    drag = { kind: "erase", ids: new Set(), last: p };
+    erase(drag, [p]);
+    viewport.setPointerCapture(e.pointerId);
+    return;
+  }
   if (tool.kind === "connection" && pinned) return pinAt(e, p);
   if (tool.kind === "connection") {
     const preview = document.createElementNS(SVG_NS, "path");
@@ -1660,6 +1668,17 @@ function startPlacing(e: PointerEvent, p: Point): void {
   nodesLayer.append(preview);
   drag = { kind: "draw", start: p, shape: tool.shape, preview };
   viewport.setPointerCapture(e.pointerId);
+}
+
+/** How near, in screen pixels, the eraser must pass a stroke to take it. */
+const ERASE_PX = 8;
+
+/** Fades the strokes the eraser's path touches; they go when it is released. */
+function erase(d: { ids: Set<string> }, path: Point[]): void {
+  for (const id of strokesTouched(data.nodes, path, ERASE_PX / view.zoom)) {
+    d.ids.add(id);
+    nodeElement(id)?.classList.add("fading");
+  }
 }
 
 /** The direction from `c` to `p`, in degrees clockwise from straight up. */
@@ -1863,6 +1882,10 @@ viewport.addEventListener("pointermove", (e) => {
       redrawEdgesOf(new Set([drag.node.id]));
       break;
     }
+    case "erase":
+      erase(drag, [drag.last, p]);
+      drag.last = p;
+      break;
     case "pen": {
       // Every point the pointer passed, not only the ones this event reports.
       for (const ev of e.getCoalescedEvents?.() ?? [e]) drag.points.push(toWorld(ev.clientX, ev.clientY));
@@ -2059,6 +2082,15 @@ function endDrag(e: PointerEvent): void {
       }
       commit();
       break;
+    case "erase": {
+      if (!d.ids.size) break;
+      // Strokes have no connections, but a custom shape may: they go with it.
+      data.nodes = data.nodes.filter((n) => !d.ids.has(n.id));
+      data.edges = data.edges.filter((e) => !d.ids.has(e.fromNode) && !d.ids.has(e.toNode));
+      for (const id of d.ids) selection.delete(id);
+      commit();
+      break;
+    }
     case "pen": {
       d.preview.remove();
       const { box, points } = strokeBox(simplify(d.points, 0.5 / view.zoom));
@@ -2236,6 +2268,8 @@ document.addEventListener("keydown", (e) => {
     setTool({ kind: "text" });
   } else if (is("pen")) {
     setTool({ kind: "pen" });
+  } else if (is("eraser")) {
+    setTool({ kind: "eraser" });
   } else if (is("arrow") || is("line")) {
     setTool({ kind: "connection", heads: is("arrow") ? "arrow" : "line" });
   } else if (is("rectangle") || is("ellipse")) {
@@ -2362,6 +2396,12 @@ function nudge(key: string, step: number): void {
 
 /** Escape closes an open menu first, then goes back to the select tool, then clears the selection. */
 function escape(): void {
+  if (drag?.kind === "erase") {
+    // The eraser lets go: nothing is wiped.
+    world.querySelectorAll(".node.fading").forEach((el) => el.classList.remove("fading"));
+    drag = null;
+    return;
+  }
   if (isContextMenuOpen()) return closeContextMenu();
   if (isShortcutPanelOpen()) return toggleShortcutPanel(false);
   if (!headMenu.hidden) return closeHeadMenu();
@@ -2557,6 +2597,8 @@ app.addEventListener("click", (e) => {
       return setTool(tool.kind === "hand" ? SELECT : { kind: "hand" });
     case "pen-tool":
       return setTool(tool.kind === "pen" ? SELECT : { kind: "pen" });
+    case "eraser-tool":
+      return setTool(tool.kind === "eraser" ? SELECT : { kind: "eraser" });
     case "arrow-tool":
     case "line-tool": {
       const heads = button.dataset.action === "arrow-tool" ? "arrow" : "line";

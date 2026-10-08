@@ -11,7 +11,7 @@ open format Obsidian uses, so the files work in both.
 - **Tools:** the bottom toolbar holds the tools, each with its key in the
   corner of its button: select (**V**), hand (**H**: drag to pan), text
   (**T**), shapes (**R** rectangle, **O** ellipse), arrow (**A**), line
-  (**L**), pen (**P**), card (**N**) and group (**G**). **Escape** closes an open menu or panel first; otherwise it goes
+  (**L**), pen (**P**), eraser (**E**), card (**N**) and group (**G**). **Escape** closes an open menu or panel first; otherwise it goes
   back to the select tool, or clears the selection when that is on already. No key fires while you type.
 - **Keys:** press **?**, or the *?* button at the top right, for a list of
   every key. **Escape** or the button closes it. An empty canvas says how to
@@ -92,6 +92,10 @@ open format Obsidian uses, so the files work in both.
   you picked last.
   A stroke is saved as an empty card the size of the stroke with its points
   in it, so Obsidian shows an empty card there.
+- **Eraser:** pick the eraser (**E**) and drag over strokes: each stroke it
+  passes fades, and goes when you let go, all in one undo step. **Escape**
+  while dragging keeps them. The eraser only wipes strokes, never cards,
+  shapes, text, groups, connections or a locked stroke.
 - **End handles:** a selected connection shows a round handle at each end.
   Drag one onto another card to join it there, or onto empty space to leave
   that end free. Each bend has a small square: drag it to move the bend. A

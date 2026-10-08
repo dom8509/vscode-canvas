@@ -1,7 +1,7 @@
 // Pen strokes: smoothing, their box, and hitting them. A stroke's points are
 // relative to its box; the box is the node's x, y, width and height.
 
-import { type CanvasNode, rotationOf, strokePoints } from "../src/jsonCanvas";
+import { type CanvasNode, isLocked, isStroke, rotationOf, strokePoints } from "../src/jsonCanvas";
 import { type Point, type Rect, center, rotatePoint } from "./geometry";
 
 /** The points of a line with the ones within `tolerance` of it dropped (Ramer–Douglas–Peucker). The ends stay. */
@@ -76,6 +76,27 @@ export function hitStroke(node: CanvasNode, p: Point, tolerance: number): boolea
   if (points.length === 1) return Math.hypot(p.x - points[0]!.x, p.y - points[0]!.y) <= tolerance;
   for (let i = 1; i < points.length; i++) if (distanceToSegment(p, points[i - 1]!, points[i]!) <= tolerance) return true;
   return false;
+}
+
+/** The ids of the unlocked strokes that the pointer's path (one point, or the segments between points) passes within `tolerance` of. */
+export function strokesTouched(nodes: CanvasNode[], path: Point[], tolerance: number): string[] {
+  const segments: [Point, Point][] = path.length === 1 ? [[path[0]!, path[0]!]] : path.slice(1).map((p, i) => [path[i]!, p]);
+  return nodes
+    .filter((n) => isStroke(n) && !isLocked(n))
+    .filter((n) => {
+      const points = worldPoints(n);
+      const lines: [Point, Point][] = points.length === 1 ? [[points[0]!, points[0]!]] : points.slice(1).map((p, i) => [points[i]!, p]);
+      return lines.some(([a, b]) => segments.some(([c, d]) => segmentDistance(a, b, c, d) <= tolerance));
+    })
+    .map((n) => n.id);
+}
+
+/** The shortest distance between the segments `ab` and `cd`: 0 when they cross. */
+function segmentDistance(a: Point, b: Point, c: Point, d: Point): number {
+  const cross = (o: Point, p: Point, q: Point) => (p.x - o.x) * (q.y - o.y) - (p.y - o.y) * (q.x - o.x);
+  const d1 = cross(c, d, a), d2 = cross(c, d, b), d3 = cross(a, b, c), d4 = cross(a, b, d);
+  if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) return 0;
+  return Math.min(distanceToSegment(a, c, d), distanceToSegment(b, c, d), distanceToSegment(c, a, b), distanceToSegment(d, a, b));
 }
 
 export function distanceToSegment(p: Point, a: Point, b: Point): number {
