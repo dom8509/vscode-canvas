@@ -91,6 +91,21 @@
             "Very sketchy lines."
           ],
           "description": "How canvases are drawn, unless a canvas or one of its cards or edges names its own style (\"style\" in the .canvas file)."
+        },
+        "canvas.theme": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "light",
+            "dark"
+          ],
+          "default": "auto",
+          "enumDescriptions": [
+            "Follow the VS Code theme: light paper on a light theme, dark paper on a dark one.",
+            "Always white paper with dark ink, as in Excalidraw.",
+            "Always dark paper with light ink."
+          ],
+          "description": "The paper canvases are drawn on. Only the look changes; the .canvas file stays the same."
         }
       }
     },

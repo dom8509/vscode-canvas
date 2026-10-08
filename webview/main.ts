@@ -83,6 +83,7 @@ import { matchesShortcut, tooltip } from "./shortcuts";
 import { isShortcutPanelOpen, shortcutPanelHtml, toggleShortcutPanel } from "./shortcutPanel";
 import { closeContextMenu, isContextMenuOpen, openContextMenu } from "./contextMenu";
 import { menuItems } from "./contextMenuItems";
+import { resolveTheme } from "./theme";
 
 declare function acquireVsCodeApi(): {
   postMessage(msg: WebviewMessage): void;
@@ -119,6 +120,8 @@ let lastPointer: Point = { x: 0, y: 0 };
 let clipboard: { nodes: CanvasNode[]; edges: CanvasEdge[] } | null = null;
 /** The drawing style from the VS Code settings. A canvas and its elements can name their own. */
 let settingsStyle: DrawingStyleName = DEFAULT_DRAWING_STYLE;
+/** The `canvas.theme` setting: auto, light or dark. */
+let themeSetting = "auto";
 
 const saved = vscode.getState() as { view?: View; edgeDefaults?: Partial<EdgeStyle> } | undefined;
 if (saved?.view) view = saved.view;
@@ -349,6 +352,14 @@ function applyView(): void {
   zoomLevel.textContent = `${Math.round(view.zoom * 100)}%`;
   vscode.setState({ view, edgeDefaults });
 }
+
+/** Light or dark paper, by the setting and the VS Code theme. The file does not change. */
+function applyPaper(): void {
+  viewport.dataset.paper = resolveTheme(themeSetting, document.body.className);
+}
+
+// VS Code changes the body's classes when the person switches theme.
+new MutationObserver(applyPaper).observe(document.body, { attributes: true, attributeFilter: ["class"] });
 
 function zoomBy(factor: number, at?: Point): void {
   const r = viewport.getBoundingClientRect();
@@ -2169,6 +2180,8 @@ window.addEventListener("message", (e: MessageEvent<HostMessage>) => {
       break;
     case "settings":
       settingsStyle = resolveDrawingStyle(msg.drawingStyle);
+      themeSetting = msg.theme;
+      applyPaper();
       if (loaded) render();
       else updateCanvasStyleButton();
       break;
@@ -2176,6 +2189,7 @@ window.addEventListener("message", (e: MessageEvent<HostMessage>) => {
 });
 
 applyView();
+applyPaper();
 updateCanvasStyleButton();
 showTool(toolbar, viewport, tool);
 post({ type: "ready" });

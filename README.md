@@ -71,7 +71,12 @@ open format Obsidian uses, so the files work in both.
   or right-angled paths, and the shape at each end (none, arrow, open arrow,
   dot, bar, diamond), as in Excalidraw. New connections take the style you
   picked last. Obsidian shows the extra styles as plain lines and arrows.
-- **Drawing styles:** the canvas is white paper, and its lines are drawn with
+- **Light and dark paper:** the canvas follows your VS Code theme: white
+  paper with dark ink on a light theme, dark paper with light ink on a dark
+  or high-contrast one, and it switches when you switch themes. The setting
+  `canvas.theme` (*auto*, *light* or *dark*) fixes it for all canvases. The
+  file does not change.
+- **Drawing styles:** the lines on the canvas are drawn with
   [Rough.js](https://roughjs.com) in one of Excalidraw's three styles:
   *architect* (clean, technical lines), *artist* (lightly hand-drawn, the
   default) or *cartoonist* (very sketchy). The setting `canvas.drawingStyle`

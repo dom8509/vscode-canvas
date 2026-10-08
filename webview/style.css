@@ -30,9 +30,23 @@ button {
 
 /* ------------------------------------------------------------ viewport */
 
-/* The canvas is white paper with dark ink, as in Excalidraw, whatever the
-   VS Code theme. The toolbars around it keep the theme's colors. */
+/* The canvas is paper: white with dark ink, as in Excalidraw, or dark with
+   light ink. `canvas.theme` picks it, or the VS Code theme does (data-paper).
+   The toolbars around it keep the theme's colors. */
 #viewport {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  outline: none;
+  cursor: default;
+  background-color: var(--vscode-editor-background);
+  color: var(--vscode-editor-foreground);
+  background-image: radial-gradient(circle, var(--dot) 1px, transparent 1.2px);
+  touch-action: none;
+  user-select: none;
+}
+
+#viewport[data-paper="light"] {
   --vscode-editor-background: #ffffff;
   --vscode-editor-foreground: #1e1e1e;
   --vscode-editorWidget-background: #ffffff;
@@ -47,16 +61,23 @@ button {
   --muted: #6b6b6b;
   --dot: #d4d4d4;
   --edge: #1e1e1e;
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  outline: none;
-  cursor: default;
-  background-color: #ffffff;
-  color: #1e1e1e;
-  background-image: radial-gradient(circle, var(--dot) 1px, transparent 1.2px);
-  touch-action: none;
-  user-select: none;
+}
+
+#viewport[data-paper="dark"] {
+  --vscode-editor-background: #121212;
+  --vscode-editor-foreground: #e3e3e8;
+  --vscode-editorWidget-background: #1b1b1f;
+  --vscode-input-background: #1b1b1f;
+  --vscode-input-foreground: #e3e3e8;
+  --vscode-textLink-foreground: #74b0ff;
+  --vscode-textCodeBlock-background: rgba(255, 255, 255, 0.08);
+  --vscode-button-secondaryBackground: #2a2a30;
+  --vscode-button-secondaryForeground: #e3e3e8;
+  --card-bg: #1b1b1f;
+  --card-border: #d0d0d6;
+  --muted: #9c9ca4;
+  --dot: #34343a;
+  --edge: #d0d0d6;
 }
 
 #viewport.far {

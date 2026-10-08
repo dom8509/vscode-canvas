@@ -53,6 +53,8 @@ Obsidian shows all three as plain text cards.
 
 **Snap guide**: the thin line that shows a moved or resized card lining up with an edge or center of a card nearby. Within 6 screen pixels the card snaps to it; on an axis with no guide it snaps to the grid. Code: `snapGuides`.
 
+**Paper**: the canvas background with its ink: light (white paper, dark ink) or dark. The setting `canvas.theme` picks it, or the VS Code theme does. Only the look; the file stays the same. Code and CSS say paper (`data-paper`), since "theme" is a word to avoid for drawing style.
+
 **Turn**: a card's rotation, clockwise in degrees, set with the turn handle. Saved as `rotation`.
 
 **Text scale**: how much bigger free text is drawn after being scaled by a corner handle. Saved as `textScale`.
