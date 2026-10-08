@@ -1,6 +1,7 @@
 import {
   type CanvasData,
   type CanvasEdge,
+  bendsOf,
   type CanvasNode,
   type EdgeStyle,
   type NodeLook,
@@ -27,6 +28,7 @@ import {
   pointNodeAt,
   prunePoints,
   rebind,
+  setBends,
   setLocked,
   isImagePath,
   isTextPath,
@@ -48,6 +50,7 @@ import {
   type Rect,
   type View,
   anchor,
+  bentPath,
   center,
   boundsOf,
   containsRect,
@@ -648,9 +651,12 @@ function edgeGeometry(edge: CanvasEdge) {
   const from = nodeById(edge.fromNode);
   const to = nodeById(edge.toNode);
   if (!from || !to) return undefined;
-  const a = endOf(from, edge.fromSide, center(to));
-  const b = endOf(to, edge.toSide, center(from));
-  return edgePath(a.at, a.side, b.at, b.side, edgeStyle(edge).pathStyle);
+  const bends = bendsOf(edge);
+  // A bound end without a stored side faces its nearest bend, else the other card.
+  const a = endOf(from, edge.fromSide, bends[0] ?? center(to));
+  const b = endOf(to, edge.toSide, bends[bends.length - 1] ?? center(from));
+  const style = edgeStyle(edge).pathStyle;
+  return bends.length ? bentPath([a.at, ...bends, b.at], style) : edgePath(a.at, a.side, b.at, b.side, style);
 }
 
 /** Where an edge meets a node: the middle of a card's side, turned with the card, or a free end with no side. */
@@ -685,11 +691,12 @@ function renderEdges(): void {
 
 /** Redraws only the connections of the given cards, so a drag on a big canvas stays smooth. */
 function redrawEdgesOf(ids: Set<string>): void {
-  for (const edge of data.edges) {
-    if (!ids.has(edge.fromNode) && !ids.has(edge.toNode)) continue;
-    world.querySelectorAll(`#edges [data-id="${CSS.escape(edge.id)}"], #labels [data-id="${CSS.escape(edge.id)}"]`).forEach((el) => el.remove());
-    drawEdge(edge);
-  }
+  for (const edge of data.edges) if (ids.has(edge.fromNode) || ids.has(edge.toNode)) redrawEdge(edge);
+}
+
+function redrawEdge(edge: CanvasEdge): void {
+  world.querySelectorAll(`#edges [data-id="${CSS.escape(edge.id)}"], #labels [data-id="${CSS.escape(edge.id)}"]`).forEach((el) => el.remove());
+  drawEdge(edge);
 }
 
 function drawEdge(edge: CanvasEdge): void {
@@ -750,6 +757,17 @@ function drawEdge(edge: CanvasEdge): void {
       h.style.top = `${at.y}px`;
       labelsLayer.append(h);
     }
+    // A small square on each bend: drag it to move the bend.
+    bendsOf(edge).forEach((at, index) => {
+      const h = document.createElement("div");
+      h.className = "bend-handle";
+      h.dataset.id = edge.id;
+      h.dataset.index = String(index);
+      h.classList.toggle("selected", selection.has(edge.id));
+      h.style.left = `${at.x}px`;
+      h.style.top = `${at.y}px`;
+      labelsLayer.append(h);
+    });
   }
 
   if (edge.label) {
@@ -768,7 +786,7 @@ function drawEdge(edge: CanvasEdge): void {
 
 /** Shows a changed selection without redrawing, so the elements under the pointer stay the same (a double-click needs that). */
 function showSelection(): void {
-  world.querySelectorAll<HTMLElement>(".node, .edge, .edge-label, .edge-lock, .end-handle").forEach((el) => {
+  world.querySelectorAll<HTMLElement>(".node, .edge, .edge-label, .edge-lock, .end-handle, .bend-handle").forEach((el) => {
     el.classList.toggle("selected", selection.has(el.dataset.id!));
   });
   updateColorbar();
@@ -1264,6 +1282,8 @@ type Drag =
   | { kind: "connect"; from: CanvasNode; side: Side; preview: SVGPathElement }
   /** An end handle of a selected connection, dragged to another card or to empty space. */
   | { kind: "rebind"; edge: CanvasEdge; end: "from" | "to"; preview: SVGPathElement }
+  /** A bend handle of a selected connection. */
+  | { kind: "bend"; edge: CanvasEdge; index: number; moved: boolean }
   /** The arrow or line tool: from a pointer down on a card or the canvas. `drawing` once it moved 10 screen pixels. */
   | { kind: "edge"; start: Point; from: CanvasNode | undefined; client: Point; drawing: boolean; heads: "arrow" | "line"; preview: SVGPathElement }
   | { kind: "draw"; start: Point; shape: ShapeKind; preview: HTMLElement }
@@ -1325,6 +1345,14 @@ viewport.addEventListener("pointerdown", (e) => {
     edgesLayer.append(preview);
     world.querySelector(`.edge[data-id="${CSS.escape(handled.id)}"]`)?.classList.add("rebinding");
     drag = { kind: "rebind", edge: handled, end: endHandle.dataset.end as "from" | "to", preview };
+    viewport.setPointerCapture(e.pointerId);
+    return;
+  }
+
+  const bendHandle = target.closest<HTMLElement>(".bend-handle");
+  const bent = bendHandle && edgeById(bendHandle.dataset.id!);
+  if (bent && !isLocked(bent)) {
+    drag = { kind: "bend", edge: bent, index: Number(bendHandle.dataset.index), moved: false };
     viewport.setPointerCapture(e.pointerId);
     return;
   }
@@ -1424,8 +1452,72 @@ viewport.addEventListener("pointerdown", (e) => {
 let tool: Tool = SELECT;
 
 function setTool(next: Tool): void {
+  if (pinned) dropPinned();
   tool = next;
   showTool(toolbar, viewport, tool);
+}
+
+// ---------------------------------------------------------------- tools: pinned lines
+
+/** A line pinned by clicks with the arrow or line tool, open until it ends. Each pin after the start is a bend, the last one its end. */
+interface Pinned {
+  start: Point;
+  from: CanvasNode | undefined;
+  pins: { at: Point; card: CanvasNode | undefined }[];
+  heads: "arrow" | "line";
+  preview: SVGPathElement;
+}
+
+let pinned: Pinned | null = null;
+/** When the last pinned line ended: the double-click that ends one must not also add text or a label. */
+let pinnedEndedAt = 0;
+
+/** How near, in screen pixels, a click must come to the last pin to end the line there. */
+const PIN_PX = 6;
+
+function lastPin(line: Pinned): Point {
+  return line.pins[line.pins.length - 1]?.at ?? line.start;
+}
+
+/** A click with a pinned line open: pins a bend, or ends the line on its last pin. */
+function pinAt(e: PointerEvent, p: Point): void {
+  const line = pinned!;
+  const last = lastPin(line);
+  if (Math.hypot(p.x - last.x, p.y - last.y) * view.zoom <= PIN_PX) return endPinned();
+  const card = nodeUnder(e.clientX, e.clientY);
+  line.pins.push({ at: card ? p : freeEndAt(last, p, e), card });
+  showPinned(p, e);
+}
+
+/** The open line from its start through its pins to the pointer. */
+function showPinned(p: Point, e: { shiftKey: boolean; altKey: boolean }): void {
+  const line = pinned!;
+  const last = lastPin(line);
+  const pointer = freeEndAt(last, p, e);
+  const bends = line.pins.map((pin) => pin.at);
+  const start = endGeometry(drawnEnd(line.from, line.start, bends[0] ?? pointer)).at;
+  line.preview.setAttribute("d", bentPath([start, ...bends, pointer], edgeDefaults.pathStyle ?? "curved").d);
+}
+
+/** Ends the open line at its last pin. With only its start pinned it makes nothing. */
+function endPinned(): void {
+  const line = pinned!;
+  dropPinned();
+  pinnedEndedAt = performance.now();
+  const end = line.pins[line.pins.length - 1];
+  if (!end) return;
+  const bends = line.pins.slice(0, -1).map((pin) => pin.at);
+  const a = drawnEnd(line.from, line.start, bends[0] ?? end.at);
+  const from = endGeometry(a).at;
+  const card = end.card && end.card.id !== line.from?.id ? end.card : undefined;
+  const b = drawnEnd(card, end.at, bends[bends.length - 1] ?? from);
+  addDrawnEdge(a, b, line.heads, bends);
+}
+
+/** Drops the open line without making anything. */
+function dropPinned(): void {
+  pinned?.preview.remove();
+  pinned = null;
 }
 
 /** With a tool picked, a click places text; a click or a drag places a shape. */
@@ -1436,6 +1528,7 @@ function startPlacing(e: PointerEvent, p: Point): void {
     viewport.setPointerCapture(e.pointerId);
     return;
   }
+  if (tool.kind === "connection" && pinned) return pinAt(e, p);
   if (tool.kind === "connection") {
     const preview = document.createElementNS(SVG_NS, "path");
     preview.classList.add("preview");
@@ -1505,6 +1598,7 @@ function startMarquee(e: PointerEvent, p: Point): void {
 
 viewport.addEventListener("pointermove", (e) => {
   lastPointer = { x: e.clientX, y: e.clientY };
+  if (pinned && !drag) showPinned(toWorld(e.clientX, e.clientY), e);
   if (!drag) return;
   const p = toWorld(e.clientX, e.clientY);
   switch (drag.kind) {
@@ -1672,6 +1766,14 @@ viewport.addEventListener("pointermove", (e) => {
       if (over) nodeElement(over.id)?.classList.add("drop-target");
       break;
     }
+    case "bend": {
+      const bends = bendsOf(drag.edge);
+      bends[drag.index] = e.altKey ? p : { x: snap(p.x, GRID), y: snap(p.y, GRID) };
+      setBends(drag.edge, bends);
+      drag.moved = true;
+      redrawEdge(drag.edge);
+      break;
+    }
     case "rebind": {
       const { target, other } = rebindTarget(drag, e, p);
       const moved = "node" in target ? endOf(nodeById(target.node)!, target.side, other.at) : { at: target.at, side: null };
@@ -1734,6 +1836,25 @@ function rebindTarget(d: { edge: CanvasEdge; end: "from" | "to" }, e: PointerEve
   const end = drawnEnd(onOther ? undefined : under, under ? p : freeEndAt(other.at, p, e), other.at);
   const target: EndTarget = end.card ? { node: end.card.id, side: end.side } : { at: end.at };
   return { target, other, onOther };
+}
+
+/** Adds a connection drawn with the arrow or line tool, in the edge style picked last, and selects it. One commit. */
+function addDrawnEdge(a: DrawnEnd, b: DrawnEnd, heads: "arrow" | "line", bends: Point[]): void {
+  const from = endNode(a);
+  const to = endNode(b);
+  const edge: CanvasEdge = { id: newId(), fromNode: from.id, toNode: to.id };
+  if (from.side) edge.fromSide = from.side;
+  if (to.side) edge.toSide = to.side;
+  setBends(edge, bends);
+  setEdgeStyle(edge, edgeDefaults);
+  // The line tool draws no heads; the arrow tool always one at the end.
+  if (heads === "line") setEdgeStyle(edge, { fromHead: "none", toHead: "none" });
+  else if (edgeStyle(edge).toHead === "none") setEdgeStyle(edge, { toHead: "arrow" });
+  data.edges.push(edge);
+  setTool(SELECT);
+  selection.clear();
+  selection.add(edge.id);
+  commit();
 }
 
 /** The node an end names in the file: its card, or a new point. */
@@ -1871,26 +1992,19 @@ function endDrag(e: PointerEvent): void {
       else render();
       break;
     }
+    case "bend":
+      if (d.moved) commit();
+      break;
     case "edge": {
-      d.preview.remove();
       world.querySelectorAll(".node.drop-target").forEach((el) => el.classList.remove("drop-target"));
-      // Shorter than 10 screen pixels: nothing.
-      if (!d.drawing) break;
+      if (!d.drawing) {
+        // A click, not a drag: the start is pinned, and the line stays open for more pins.
+        pinned = { start: d.start, from: d.from, pins: [], heads: d.heads, preview: d.preview };
+        break;
+      }
+      d.preview.remove();
       const { a, b } = drawnEnds(d, e, p);
-      const from = endNode(a);
-      const to = endNode(b);
-      const edge: CanvasEdge = { id: newId(), fromNode: from.id, toNode: to.id };
-      if (from.side) edge.fromSide = from.side;
-      if (to.side) edge.toSide = to.side;
-      setEdgeStyle(edge, edgeDefaults);
-      // The line tool draws no heads; the arrow tool always one at the end.
-      if (d.heads === "line") setEdgeStyle(edge, { fromHead: "none", toHead: "none" });
-      else if (edgeStyle(edge).toHead === "none") setEdgeStyle(edge, { toHead: "arrow" });
-      data.edges.push(edge);
-      setTool(SELECT);
-      selection.clear();
-      selection.add(edge.id);
-      commit();
+      addDrawnEdge(a, b, d.heads, []);
       break;
     }
   }
@@ -1900,7 +2014,7 @@ viewport.addEventListener("pointerup", endDrag);
 viewport.addEventListener("pointercancel", endDrag);
 
 viewport.addEventListener("dblclick", (e) => {
-  if (tool.kind !== "select") return;
+  if (tool.kind !== "select" || performance.now() - pinnedEndedAt < 600) return;
   // Pointer capture makes the event's own target the viewport: look at what is under the pointer.
   const target = (document.elementFromPoint(e.clientX, e.clientY) ?? e.target) as HTMLElement;
   if (target.closest(".editor, .inline-input, .link-open")) return;
@@ -1947,6 +2061,14 @@ document.addEventListener("keydown", (e) => {
   if (!loaded || (e.target as HTMLElement).closest?.("input, textarea, [contenteditable]")) return;
   const is = (id: string) => matchesShortcut(id, e);
   const key = e.key.toLowerCase();
+  if (pinned) {
+    // Enter or Escape ends the open line at its last pin. Undo drops it first, then undoes as usual.
+    if (e.key === "Enter" || e.key === "Escape") {
+      e.preventDefault();
+      return endPinned();
+    }
+    if ((e.ctrlKey || e.metaKey) && key === "z") dropPinned();
+  }
   if (key === " " && !spaceHeld) {
     spaceHeld = true;
     viewport.classList.add("can-pan");

@@ -422,3 +422,23 @@ export function rebind(data: CanvasData, edgeId: string, end: "from" | "to", tar
   }
   return true;
 }
+
+// ---------------------------------------------------------------- bends
+// A connection can bend through points pinned while drawing it. Saved as a flat
+// list `"bends": [x1, y1, x2, y2, …]` in canvas coordinates; Obsidian draws the
+// connection straight from end to end.
+
+/** The bends of a connection, or none when the list is missing or broken. */
+export function bendsOf(edge: CanvasEdge): { x: number; y: number }[] {
+  const b = edge.bends;
+  if (!Array.isArray(b) || b.length % 2 !== 0 || !b.every((v) => typeof v === "number" && Number.isFinite(v))) return [];
+  const out: { x: number; y: number }[] = [];
+  for (let i = 0; i < b.length; i += 2) out.push({ x: b[i] as number, y: b[i + 1] as number });
+  return out;
+}
+
+export function setBends(edge: CanvasEdge, points: { x: number; y: number }[]): void {
+  const round = (v: number) => Math.round(v * 10) / 10;
+  if (points.length) edge.bends = points.flatMap((p) => [round(p.x), round(p.y)]);
+  else delete edge.bends;
+}

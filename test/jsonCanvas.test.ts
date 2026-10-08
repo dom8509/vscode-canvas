@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   type CanvasData,
+  bendsOf,
   cssColor,
   isImagePath,
   isLocked,
@@ -12,6 +13,7 @@ import {
   prunePoints,
   rebind,
   serializeCanvas,
+  setBends,
   setLocked,
   setNodeLook,
 } from "../src/jsonCanvas";
@@ -221,5 +223,41 @@ describe("rebind", () => {
     const before = structuredClone(data);
     expect(rebind(data, "e", "to", { node: "b", side: "left" })).toBe(false);
     expect(data).toEqual(before);
+  });
+});
+
+describe("bends", () => {
+  const edge = () => ({ id: "e", fromNode: "a", toNode: "b" }) as Parameters<typeof bendsOf>[0];
+
+  it("saves bends as a flat list, rounded to one decimal", () => {
+    const e = edge();
+    setBends(e, [{ x: 10.04, y: 20.06 }, { x: -3, y: 4.25 }]);
+    expect(e.bends).toEqual([10, 20.1, -3, 4.3]);
+    expect(bendsOf(e)).toEqual([{ x: 10, y: 20.1 }, { x: -3, y: 4.3 }]);
+  });
+
+  it("leaves bends out when there are none", () => {
+    const e = edge();
+    setBends(e, [{ x: 1, y: 2 }]);
+    setBends(e, []);
+    expect("bends" in e).toBe(false);
+    expect(bendsOf(e)).toEqual([]);
+  });
+
+  it("reads a broken list as no bends", () => {
+    expect(bendsOf({ ...edge(), bends: [1, 2, 3] })).toEqual([]);
+    expect(bendsOf({ ...edge(), bends: [1, "2"] })).toEqual([]);
+    expect(bendsOf({ ...edge(), bends: "1,2" })).toEqual([]);
+  });
+
+  it("keeps bends through a round trip", () => {
+    const text = serializeCanvas({
+      nodes: [
+        { id: "a", type: "text", text: "", x: 0, y: 0, width: 10, height: 10 },
+        { id: "b", type: "text", text: "", x: 90, y: 0, width: 10, height: 10 },
+      ],
+      edges: [{ id: "e", fromNode: "a", toNode: "b", bends: [50, 80] }],
+    });
+    expect(serializeCanvas(parseCanvas(text))).toBe(text);
   });
 });

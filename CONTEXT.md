@@ -37,6 +37,8 @@ Obsidian shows all three as plain text cards.
 
 **Point**: the node that holds a free end: an empty 1×1 text node with `"shape": "point"`. The canvas never draws, selects or exports it; it goes when its last connection goes. Obsidian shows it as a tiny card. Code: `isPoint`, `pointNodeAt`.
 
+**Pin** and **bend**: with the arrow or line tool, a click pins a line point by point. The first pin is the start, the last the end, and each one between is a **bend** the connection passes through. Saved as `"bends"` on the edge, in canvas coordinates; Obsidian draws the connection straight from end to end. Code: `bendsOf`, `setBends`.
+
 **End** and **head**: JSON Canvas knows two ends, `none` and `arrow`. The **head** is the drawn shape at an end (arrow, open, dot, bar, diamond); any head other than none is saved as an `arrow` end plus a head property.
 
 **Edge style**: a connection's look: heads, line style (solid, dashed, dotted), line width, path style (curved, straight, elbow). Code: `EdgeStyle`.

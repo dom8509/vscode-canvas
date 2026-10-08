@@ -133,6 +133,49 @@ export function edgePath(a: Point, sideA: Side | null, b: Point, sideB: Side | n
   };
 }
 
+/**
+ * The path of a connection through its bends, from `points[0]` to the last point. Curved goes
+ * smoothly through every point (Catmull-Rom); straight and elbow join them with straight segments.
+ */
+export function bentPath(points: Point[], style: PathStyle): EdgeCurve {
+  const n = points.length;
+  const a = points[0]!;
+  const b = points[n - 1]!;
+  let d: string;
+  let line: Point[];
+  if (style === "curved") {
+    d = `M ${a.x} ${a.y}`;
+    line = [a];
+    for (let i = 0; i < n - 1; i++) {
+      const p0 = points[i - 1] ?? points[i]!;
+      const p1 = points[i]!;
+      const p2 = points[i + 1]!;
+      const p3 = points[i + 2] ?? p2;
+      const c1 = { x: p1.x + (p2.x - p0.x) / 6, y: p1.y + (p2.y - p0.y) / 6 };
+      const c2 = { x: p2.x - (p3.x - p1.x) / 6, y: p2.y - (p3.y - p1.y) / 6 };
+      d += ` C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${p2.x} ${p2.y}`;
+      for (let k = 1; k <= 16; k++) line.push(bezierAt(p1, c1, c2, p2, k / 16));
+    }
+  } else {
+    d = "M " + points.map((p) => `${p.x} ${p.y}`).join(" L ");
+    line = points;
+  }
+  return {
+    start: a,
+    end: b,
+    d,
+    mid: pointAlong(line, 0.5),
+    endDir: unit({ x: b.x - points[n - 2]!.x, y: b.y - points[n - 2]!.y }, { x: 1, y: 0 }),
+    startDir: unit({ x: a.x - points[1]!.x, y: a.y - points[1]!.y }, { x: -1, y: 0 }),
+  };
+}
+
+function bezierAt(p0: Point, p1: Point, p2: Point, p3: Point, t: number): Point {
+  const u = 1 - t;
+  const w = [u * u * u, 3 * u * u * t, 3 * u * t * t, t * t * t] as const;
+  return { x: w[0] * p0.x + w[1] * p1.x + w[2] * p2.x + w[3] * p3.x, y: w[0] * p0.y + w[1] * p1.y + w[2] * p2.y + w[3] * p3.y };
+}
+
 const ELBOW_OUT = 24;
 
 /** Corners of a right-angled path that leaves `a` straight out of `sideA` and enters `b` straight into `sideB`. */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { anchor, autoSides, boundsOf, containsRect, edgeCurve, edgePath, fitView, gridAround, sideFacing, snapAngle, turnedBounds, zoomAt } from "../webview/geometry";
+import { anchor, autoSides, bentPath, boundsOf, containsRect, edgeCurve, edgePath, fitView, gridAround, sideFacing, snapAngle, turnedBounds, zoomAt } from "../webview/geometry";
 
 const r = { x: 0, y: 0, width: 200, height: 100 };
 
@@ -107,5 +107,40 @@ describe("free ends", () => {
       expect(c.endDir.y, style).toBeCloseTo(1);
       expect(c.startDir.y, style).toBeCloseTo(-1);
     }
+  });
+});
+
+describe("bentPath", () => {
+  const points = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }];
+
+  it("curves through every point", () => {
+    const c = bentPath(points, "curved");
+    expect(c.d.startsWith("M 0 0 C")).toBe(true);
+    for (const p of points) expect(c.d).toContain(`${p.x} ${p.y}`);
+    expect(c.d.match(/C/g)).toHaveLength(2);
+  });
+
+  it("joins the points with straight segments for straight and elbow", () => {
+    expect(bentPath(points, "straight").d).toBe("M 0 0 L 100 0 L 100 100");
+    expect(bentPath(points, "elbow").d).toBe("M 0 0 L 100 0 L 100 100");
+  });
+
+  it("points the heads along the first and last segment", () => {
+    for (const style of ["curved", "straight"] as const) {
+      const c = bentPath(points, style);
+      expect(c.start).toEqual({ x: 0, y: 0 });
+      expect(c.end).toEqual({ x: 100, y: 100 });
+      expect(c.endDir.x, style).toBeCloseTo(0);
+      expect(c.endDir.y, style).toBeCloseTo(1);
+      expect(c.startDir.x, style).toBeCloseTo(-1);
+      expect(c.startDir.y, style).toBeCloseTo(0);
+    }
+  });
+
+  it("puts the label halfway along the path", () => {
+    expect(bentPath(points, "straight").mid).toEqual({ x: 100, y: 0 });
+    const curved = bentPath(points, "curved").mid;
+    expect(curved.x).toBeGreaterThan(95);
+    expect(curved.y).toBeLessThan(5);
   });
 });

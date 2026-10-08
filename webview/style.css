@@ -553,6 +553,25 @@ button {
   display: block;
 }
 
+/* A bend of a selected connection: drag it to move the bend. */
+.bend-handle {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  box-sizing: border-box;
+  border-radius: 2px;
+  background: var(--vscode-editor-background);
+  border: 1.5px solid var(--accent);
+  cursor: move;
+  display: none;
+  z-index: 3;
+}
+
+.bend-handle.selected {
+  display: block;
+}
+
 .edge.rebinding {
   opacity: 0.3;
 }
