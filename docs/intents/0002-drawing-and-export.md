@@ -25,7 +25,8 @@ stays valid JSON Canvas and still opens in Obsidian.
 
 ## Non-goals
 
-- Shape recognition from freehand strokes.
+- Shape recognition from freehand strokes (a closed stroke keeps the outline
+  as drawn; it is not turned into a rectangle or ellipse).
 - Pressure-sensitive brush styles beyond simple stroke width.
 - PDF export, embedding a live canvas in Markdown, collaboration.
 
@@ -35,8 +36,15 @@ stays valid JSON Canvas and still opens in Obsidian.
 - New tool **A** (arrow) and **L** (line) in the bottom toolbar.
 - Drag on the canvas to draw. An end dropped on a card binds to that card (and
   the side under the pointer); an end on empty space stays a free point.
+- Or click to pin the start, click again to pin each bend, and double-click
+  (or Enter) to end the line, as in Excalidraw. Each pin may sit on a card or
+  on empty space; the ends bind as above.
+- A line whose last pin lands on its first closes and becomes a custom shape,
+  as a closed pen stroke does (R4).
 - Holding Shift snaps the angle to 15° steps.
 - The new connection takes the sticky line and arrow style.
+- Dragging a card's dot to empty space also leaves a free end. Arrows do not
+  have to be pinned to cards.
 
 ### R2. Edit connection ends
 - A selected connection shows a handle at each end.
@@ -63,6 +71,8 @@ Obsidian shows a tiny empty card there, which is acceptable.
   lock work as for any node.
 - Strokes made within a short time with the pen still active stay separate
   nodes; the user can group them.
+- A stroke that ends where it started closes, as in Excalidraw, and becomes a
+  custom shape: it can be filled, written in and connected like any shape.
 
 ### R5. Eraser
 - New tool **E**. Dragging over strokes deletes the strokes it touches.
@@ -76,7 +86,6 @@ Obsidian shows a tiny empty card there, which is acceptable.
 - Exports the selection if there is one, otherwise the whole canvas, with a
   padding margin.
 - Options: background on/off, light or dark, scale 1×/2×/3× (PNG).
-- *Copy as PNG* (Ctrl/Cmd+Shift+C) puts the image on the clipboard.
 - The exported image looks exactly like the canvas: same fonts (handwriting
   font embedded in SVG), same Rough.js lines, images and note previews.
 - Files are saved via VS Code's save dialog, next to the canvas by default.
