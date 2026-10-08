@@ -1010,6 +1010,27 @@ button {
   stroke-dasharray: 6 4;
 }
 
+#viewport.hand:not(.panning),
+#viewport.hand:not(.panning) * {
+  cursor: grab !important;
+}
+
+/* The key of a toolbar button, small in its corner. */
+#toolbar > button {
+  position: relative;
+}
+
+.key-hint {
+  position: absolute;
+  right: 2px;
+  bottom: 0;
+  font-family: inherit;
+  font-size: 8px;
+  line-height: 1;
+  opacity: 0.6;
+  pointer-events: none;
+}
+
 #toolbar button.active {
   background: color-mix(in srgb, var(--accent) 25%, transparent);
   color: var(--vscode-textLink-foreground, var(--accent));

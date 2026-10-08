@@ -73,6 +73,9 @@ import {
 import { sketchPath } from "./sketch";
 import { escapeHtml, renderMarkdown, stripFrontMatter } from "./markdown";
 import { defaultShapeSize, shapeMarks, shapePath } from "./shapes";
+import { icon, shapeIcon, title } from "./icons";
+import { SELECT, type Tool, showTool, toolbarHtml } from "./toolbar";
+import { matchesShortcut, tooltip } from "./shortcuts";
 
 declare function acquireVsCodeApi(): {
   postMessage(msg: WebviewMessage): void;
@@ -132,18 +135,7 @@ app.innerHTML = `
     <p></p>
     <button data-action="source">Open as text</button>
   </div>
-  <div id="toolbar">
-    <button data-action="text" title="Add card (or double-click the canvas)">${icon("card")}</button>
-    <button data-action="text-tool" title="Text (T): click on the canvas to write">${icon("type")}</button>
-    <button data-action="shapes" title="Shapes (R, O): pick one, then click or drag on the canvas">${icon("shapes")}</button>
-    <button data-action="file" title="Add note or media from the workspace">${icon("file")}</button>
-    <button data-action="image" title="Add image (or paste one with Ctrl+V)">${icon("image")}</button>
-    <button data-action="link" title="Add web page">${icon("link")}</button>
-    <button data-action="group" title="Add group (around the selection, if any)">${icon("group")}</button>
-    <div id="shape-menu" hidden>
-      ${SHAPES.map((k) => `<button data-shape="${k}" title="${title(k.replace("-", " "))}">${shapeIcon(k)}</button>`).join("")}
-    </div>
-  </div>
+  ${toolbarHtml()}
   <div id="props" hidden>
     <section>
       <h3>Color</h3>
@@ -185,18 +177,18 @@ app.innerHTML = `
       <div class="segmented">${DRAWING_STYLE_NAMES.map((v) => `<button data-drawing="${v}" title="${title(v)}">${drawingStyleIcon(v)}</button>`).join("")}</div>
     </section>
     <section>
-      <button class="action danger" data-action="delete" title="Delete (Del)">${icon("trash")}<span>Delete</span></button>
+      <button class="action danger" data-action="delete" title="${tooltip("delete")}">${icon("trash")}<span>Delete</span></button>
     </section>
     <div id="head-menu" hidden></div>
   </div>
   <div id="zoombar">
-    <button data-action="zoom-in" title="Zoom in">${icon("plus")}</button>
-    <button data-action="zoom-reset" id="zoom-level" title="Reset zoom">100%</button>
-    <button data-action="zoom-out" title="Zoom out">${icon("minus")}</button>
-    <button data-action="fit" title="Zoom to fit (Shift+1)">${icon("fit")}</button>
+    <button data-action="zoom-in" title="${tooltip("zoomIn")}">${icon("plus")}</button>
+    <button data-action="zoom-reset" id="zoom-level" title="${tooltip("zoomReset", "Reset zoom")}">100%</button>
+    <button data-action="zoom-out" title="${tooltip("zoomOut")}">${icon("minus")}</button>
+    <button data-action="fit" title="${tooltip("fit")}">${icon("fit")}</button>
     <button data-action="canvas-style" id="canvas-style"></button>
-    <button data-action="undo" title="Undo (Ctrl+Z)">${icon("undo")}</button>
-    <button data-action="redo" title="Redo (Ctrl+Shift+Z)">${icon("redo")}</button>
+    <button data-action="undo" title="${tooltip("undo")}">${icon("undo")}</button>
+    <button data-action="redo" title="${tooltip("redo")}">${icon("redo")}</button>
   </div>
 `;
 
@@ -244,17 +236,6 @@ function segmented(key: keyof EdgeStyle, values: readonly string[]): string {
   return `<div class="segmented">${buttons}</div>`;
 }
 
-function title(value: string): string {
-  return value[0]!.toUpperCase() + value.slice(1);
-}
-
-/** A small picture of a shape for menus. */
-function shapeIcon(shape: ShapeKind): string {
-  const marks = shapeMarks(shape, 24, 20, 2);
-  return `<svg class="shape-icon" viewBox="0 0 24 20" width="24" height="20"><path d="${shapePath(shape, 24, 20, 2)}"/>${marks ? `<path d="${marks}"/>` : ""}</svg>`;
-}
-
-
 /** A wavy line drawn in a drawing style: clean, a little sketchy or very sketchy. */
 function drawingStyleIcon(style: DrawingStyleName): string {
   const d = sketchPath("M 4 15 C 9 4, 15 4, 17 11 S 22 18, 26 7", 7, style);
@@ -293,26 +274,6 @@ function segmentedLook(key: keyof NodeLook, values: readonly string[]): string {
     })
     .join("");
   return `<div class="segmented">${buttons}</div>`;
-}
-
-function icon(name: string): string {
-  const paths: Record<string, string> = {
-    card: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9h10M7 13h7"/>',
-    file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
-    image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/>',
-    link: '<path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/>',
-    type: '<path d="M5 6V4h14v2M12 4v16M9 20h6"/>',
-    shapes: '<rect x="3" y="3" width="10" height="10" rx="2"/><circle cx="16.5" cy="16.5" r="4.5"/>',
-    group: '<rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="3 3"/><rect x="7" y="8" width="6" height="5" rx="1"/>',
-    trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
-    plus: '<path d="M12 5v14M5 12h14"/>',
-    minus: '<path d="M5 12h14"/>',
-    fit: '<path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/>',
-    undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/>',
-    redo: '<path d="m15 14 5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h3"/>',
-    open: '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
-  };
-  return `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${paths[name]}</svg>`;
 }
 
 // ---------------------------------------------------------------- helpers
@@ -1097,7 +1058,7 @@ viewport.addEventListener("pointerdown", (e) => {
   viewport.focus();
   const p = toWorld(e.clientX, e.clientY);
 
-  if (e.button === 1 || (e.button === 0 && spaceHeld)) {
+  if (e.button === 1 || (e.button === 0 && (spaceHeld || tool.kind === "hand"))) {
     e.preventDefault();
     drag = { kind: "pan", start: { x: e.clientX, y: e.clientY }, view: { ...view } };
     viewport.classList.add("panning");
@@ -1106,7 +1067,7 @@ viewport.addEventListener("pointerdown", (e) => {
   }
   if (e.button !== 0) return;
 
-  if (tool) {
+  if (tool.kind !== "select") {
     startPlacing(e, p);
     return;
   }
@@ -1197,26 +1158,22 @@ viewport.addEventListener("pointerdown", (e) => {
 
 // ---------------------------------------------------------------- tools: text and shapes
 
-type Tool = { kind: "text" } | { kind: "shape"; shape: ShapeKind };
-let tool: Tool | null = null;
+let tool: Tool = SELECT;
 
-function setTool(next: Tool | null): void {
+function setTool(next: Tool): void {
   tool = next;
-  viewport.classList.toggle("placing", !!tool);
-  toolbar.querySelector('[data-action="text-tool"]')!.classList.toggle("active", tool?.kind === "text");
-  toolbar.querySelector('[data-action="shapes"]')!.classList.toggle("active", tool?.kind === "shape");
-  shapeMenu.hidden = true;
+  showTool(toolbar, viewport, tool);
 }
 
 /** With a tool picked, a click places text; a click or a drag places a shape. */
 function startPlacing(e: PointerEvent, p: Point): void {
-  if (!tool) return;
   if (tool.kind === "text") {
     // The text box opens on release: opening it now would lose the focus the press gives the canvas.
     drag = { kind: "text", start: p };
     viewport.setPointerCapture(e.pointerId);
     return;
   }
+  if (tool.kind !== "shape") return;
   const preview = document.createElement("div");
   preview.className = "draw-preview";
   nodesLayer.append(preview);
@@ -1414,7 +1371,7 @@ function endDrag(e: PointerEvent): void {
       }
       break;
     case "text": {
-      setTool(null);
+      setTool(SELECT);
       addNode(freeTextAt(d.start), true);
       break;
     }
@@ -1439,7 +1396,7 @@ function endDrag(e: PointerEvent): void {
         height: Math.max(20, r.height),
       };
       setNodeLook(node, { ...shapeDefaults, shape: d.shape });
-      setTool(null);
+      setTool(SELECT);
       addNode(node);
       break;
     }
@@ -1476,7 +1433,7 @@ viewport.addEventListener("pointerup", endDrag);
 viewport.addEventListener("pointercancel", endDrag);
 
 viewport.addEventListener("dblclick", (e) => {
-  if (tool) return;
+  if (tool.kind !== "select") return;
   // Pointer capture makes the event's own target the viewport: look at what is under the pointer.
   const target = (document.elementFromPoint(e.clientX, e.clientY) ?? e.target) as HTMLElement;
   if (target.closest(".editor, .inline-input, .link-open")) return;
@@ -1520,47 +1477,51 @@ viewport.addEventListener(
 // ---------------------------------------------------------------- keyboard
 
 document.addEventListener("keydown", (e) => {
-  if (!loaded || (e.target as HTMLElement).closest?.("input, textarea")) return;
-  const mod = e.ctrlKey || e.metaKey;
+  if (!loaded || (e.target as HTMLElement).closest?.("input, textarea, [contenteditable]")) return;
+  const is = (id: string) => matchesShortcut(id, e);
   const key = e.key.toLowerCase();
   if (key === " " && !spaceHeld) {
     spaceHeld = true;
     viewport.classList.add("can-pan");
     e.preventDefault();
-  } else if (key === "delete" || key === "backspace") {
+  } else if (is("delete")) {
     e.preventDefault();
     deleteSelection();
-  } else if (mod && key === "a") {
+  } else if (is("selectAll")) {
     e.preventDefault();
     data.nodes.forEach((n) => selection.add(n.id));
     showSelection();
-  } else if (mod && key === "d") {
+  } else if (is("duplicate")) {
     e.preventDefault();
-    const fragment = copySelection() && clipboard;
-    if (fragment) {
-      const b = boundsOf(fragment.nodes)!;
-      paste(fragment, { x: b.x + b.width / 2 + GRID * 2, y: b.y + b.height / 2 + GRID * 2 });
-    }
-  } else if (key === "escape") {
-    if (tool || !shapeMenu.hidden) return setTool(null);
-    selection.clear();
-    showSelection();
-  } else if (!mod && !e.altKey && !e.shiftKey && (key === "t" || key === "r" || key === "o")) {
-    setTool(key === "t" ? { kind: "text" } : { kind: "shape", shape: key === "r" ? "rectangle" : "ellipse" });
-  } else if (key === "enter" && selection.size === 1) {
+    duplicateSelection();
+  } else if (is("escape")) {
+    escape();
+  } else if (is("select")) {
+    setTool(SELECT);
+  } else if (is("hand")) {
+    setTool({ kind: "hand" });
+  } else if (is("text")) {
+    setTool({ kind: "text" });
+  } else if (is("rectangle") || is("ellipse")) {
+    setTool({ kind: "shape", shape: is("rectangle") ? "rectangle" : "ellipse" });
+  } else if (is("card")) {
+    addNode(textNodeAt(viewportCenter()), true);
+  } else if (is("group")) {
+    addGroup();
+  } else if (is("edit") && selection.size === 1) {
     e.preventDefault();
     startEditing([...selection][0]!);
-  } else if (e.shiftKey && (key === "1" || key === "!")) {
+  } else if (is("fit")) {
     fitToContent();
-  } else if (e.shiftKey && (key === "2" || key === "@") && selection.size) {
+  } else if (is("fitSelection") && selection.size) {
     fitToContent(selectedNodes());
-  } else if (mod && (key === "=" || key === "+")) {
+  } else if (is("zoomIn")) {
     e.preventDefault();
     zoomBy(1.2);
-  } else if (mod && key === "-") {
+  } else if (is("zoomOut")) {
     e.preventDefault();
     zoomBy(1 / 1.2);
-  } else if (mod && key === "0") {
+  } else if (is("zoomReset")) {
     e.preventDefault();
     zoomBy(1 / view.zoom);
   } else if (key.startsWith("arrow") && selection.size) {
@@ -1575,6 +1536,25 @@ document.addEventListener("keydown", (e) => {
     commit();
   }
 });
+
+/** Escape closes an open menu first, then goes back to the select tool, then clears the selection. */
+function escape(): void {
+  if (!headMenu.hidden) return closeHeadMenu();
+  if (!shapeMenu.hidden) {
+    shapeMenu.hidden = true;
+    return;
+  }
+  if (tool.kind !== "select") return setTool(SELECT);
+  selection.clear();
+  showSelection();
+}
+
+function duplicateSelection(): void {
+  const fragment = copySelection() && clipboard;
+  if (!fragment) return;
+  const b = boundsOf(fragment.nodes)!;
+  paste(fragment, { x: b.x + b.width / 2 + GRID * 2, y: b.y + b.height / 2 + GRID * 2 });
+}
 
 document.addEventListener("keyup", (e) => {
   if (e.key === " ") {
@@ -1743,9 +1723,13 @@ app.addEventListener("click", (e) => {
     case "text":
       return addNode(textNodeAt(viewportCenter()), true);
     case "text-tool":
-      return setTool(tool?.kind === "text" ? null : { kind: "text" });
+      return setTool(tool.kind === "text" ? SELECT : { kind: "text" });
+    case "select":
+      return setTool(SELECT);
+    case "hand":
+      return setTool(tool.kind === "hand" ? SELECT : { kind: "hand" });
     case "shapes":
-      if (tool?.kind === "shape") return setTool(null);
+      if (tool.kind === "shape") return setTool(SELECT);
       shapeMenu.hidden = !shapeMenu.hidden;
       return;
     case "file":
@@ -1777,14 +1761,11 @@ app.addEventListener("click", (e) => {
   }
 });
 
-// The arrowhead menu closes on a click elsewhere or Escape.
+// The arrowhead and shape menus close on a click elsewhere, or on Escape (see `escape`).
 document.addEventListener("pointerdown", (e) => {
   const t = e.target as HTMLElement;
   if (!headMenu.hidden && !t.closest("#head-menu, .picker")) closeHeadMenu();
   if (!shapeMenu.hidden && !t.closest('#shape-menu, [data-action="shapes"]')) shapeMenu.hidden = true;
-});
-document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && !headMenu.hidden) closeHeadMenu();
 });
 
 props.querySelector<HTMLInputElement>("input[type=color]")!.addEventListener("change", (e) => {
@@ -1840,4 +1821,5 @@ window.addEventListener("message", (e: MessageEvent<HostMessage>) => {
 
 applyView();
 updateCanvasStyleButton();
+showTool(toolbar, viewport, tool);
 post({ type: "ready" });
