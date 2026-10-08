@@ -8,14 +8,22 @@ open format Obsidian uses, so the files work in both.
 
 ## Using it
 
+- **Tools:** the bottom toolbar holds the tools, each with its key in the
+  corner of its button: select (**V**), hand (**H**: drag to pan), text
+  (**T**), shapes (**R** rectangle, **O** ellipse), card (**N**) and group
+  (**G**). **Escape** closes an open menu or panel first; otherwise it goes
+  back to the select tool, or clears the selection when that is on already. No key fires while you type.
+- **Keys:** press **?**, or the *?* button at the top right, for a list of
+  every key. **Escape** or the button closes it. An empty canvas says how to
+  start.
 - **Create a canvas:** run *Canvas: New Canvas* from the Command Palette, or
   right-click a folder in the Explorer. Any `*.canvas` file opens on the canvas.
 - **Cards:** the card button in the bottom toolbar adds a card to write in
   (Markdown: headings, lists, tasks, **bold**, *italic*, `code`, links,
   `[[wikilinks]]`). Double-click a card to edit it; Escape or a click outside
   ends editing.
-- **Text:** double-click the empty canvas, or pick the text tool with the *T*
-  button (or the **T** key) and click; then type, as in Excalidraw. Free text has no box and grows with
+- **Text:** double-click the empty canvas, or pick the text tool (**T**)
+  and click; then type, as in Excalidraw. Free text has no box and grows with
   what you write; the properties panel sets its size (S, M, L, XL) and color.
   Text left empty disappears.
 - **Shapes:** the shapes button opens 18 shapes, as in tldraw: rectangle,
@@ -63,7 +71,12 @@ open format Obsidian uses, so the files work in both.
   or right-angled paths, and the shape at each end (none, arrow, open arrow,
   dot, bar, diamond), as in Excalidraw. New connections take the style you
   picked last. Obsidian shows the extra styles as plain lines and arrows.
-- **Drawing styles:** the canvas is white paper, and its lines are drawn with
+- **Light and dark paper:** the canvas follows your VS Code theme: white
+  paper with dark ink on a light theme, dark paper with light ink on a dark
+  or high-contrast one, and it switches when you switch themes. The setting
+  `canvas.theme` (*auto*, *light* or *dark*) fixes it for all canvases. The
+  file does not change.
+- **Drawing styles:** the lines on the canvas are drawn with
   [Rough.js](https://roughjs.com) in one of Excalidraw's three styles:
   *architect* (clean, technical lines), *artist* (lightly hand-drawn, the
   default) or *cartoonist* (very sketchy). The setting `canvas.drawingStyle`
@@ -74,13 +87,40 @@ open format Obsidian uses, so the files work in both.
   drawing changes, and each element looks the same on every redraw.
 - **Properties:** select cards or connections and a panel on the left shows
   their properties, as in Excalidraw and tldraw: one of six colors or a custom one, and
-  for connections the line and arrow styles below.
-- **Move and resize:** drag cards (they snap to the grid; hold **Alt** to
-  move freely); drag any corner or side to resize. Free text
+  for connections the line and arrow styles below. New cards, shapes and
+  free text take the color, fill, font, text size and border you picked
+  last, as far as they fit (free text has no fill or border).
+- **Align and distribute:** with two or more cards selected, the *Align* row
+  in the properties panel lines up their left sides, centers, right sides,
+  tops, middles or bottoms. With three or more, two more buttons space them
+  out evenly across or down: the outer two stay put. A turned card counts by
+  its turned outline. Locked cards stay where they are.
+- **Move and resize:** drag cards; drag any corner or side to resize. While
+  you drag, an edge or center of a card snaps to the edges and centers of
+  the cards nearby, and a thin red guide shows the match; where nothing is
+  near, cards snap to the grid. Hold **Alt** to move freely. With two or
+  more cards selected, one box with eight handles goes around them: drag a
+  handle to scale them all at once (hold **Shift** to keep the box's shape).
+  Free text in the selection scales its text with it. Free text
   you make narrower keeps that width and wraps. Arrow keys nudge the
-  selection.
+  selection (**Shift**: further); nudges in a quick row undo in one step.
+- **Context menu:** right-click a card, group or connection for cut, copy,
+  paste, duplicate, delete, the layer order, group selection, lock and zoom
+  to selection; right-click the empty canvas for paste, select all and zoom
+  to fit. Items that do not apply are greyed out; each shows its key.
+- **Layer order:** **Ctrl/Cmd+]** brings the selected cards one step forward,
+  **Ctrl/Cmd+[** sends them one step back; add **Shift** to bring them to the
+  front or send them to the back. Groups always stay behind the cards. The
+  order is the order in the file, so Obsidian shows it the same.
+- **Lock:** **Ctrl/Cmd+Shift+L**, or *Lock* in the properties panel, locks the
+  selected cards, groups and connections: they cannot be moved, resized,
+  turned, edited, restyled or deleted, and a selection box skips them. Click
+  one and press the key again to unlock it. A small lock shows on hover. A
+  card with a locked connection stays until you unlock the connection. A
+  group you move still carries the locked cards inside it. Copies are not
+  locked. Obsidian ignores the lock.
 - **Select:** click; Shift-click adds; drag on the empty canvas draws a
-  selection box. Ctrl/Cmd+A selects everything.
+  selection box. Ctrl/Cmd+A selects everything that is not locked.
 - **Navigate:** scroll to pan (Shift+scroll sideways), Ctrl/Cmd+scroll or
   pinch to zoom, Space+drag or middle-drag to pan. Shift+1 zooms to fit all,
   Shift+2 to fit the selection. The bar at the top right zooms too.

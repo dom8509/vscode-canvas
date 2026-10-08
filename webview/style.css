@@ -30,9 +30,23 @@ button {
 
 /* ------------------------------------------------------------ viewport */
 
-/* The canvas is white paper with dark ink, as in Excalidraw, whatever the
-   VS Code theme. The toolbars around it keep the theme's colors. */
+/* The canvas is paper: white with dark ink, as in Excalidraw, or dark with
+   light ink. `canvas.theme` picks it, or the VS Code theme does (data-paper).
+   The toolbars around it keep the theme's colors. */
 #viewport {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  outline: none;
+  cursor: default;
+  background-color: var(--vscode-editor-background);
+  color: var(--vscode-editor-foreground);
+  background-image: radial-gradient(circle, var(--dot) 1px, transparent 1.2px);
+  touch-action: none;
+  user-select: none;
+}
+
+#viewport[data-paper="light"] {
   --vscode-editor-background: #ffffff;
   --vscode-editor-foreground: #1e1e1e;
   --vscode-editorWidget-background: #ffffff;
@@ -47,16 +61,23 @@ button {
   --muted: #6b6b6b;
   --dot: #d4d4d4;
   --edge: #1e1e1e;
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  outline: none;
-  cursor: default;
-  background-color: #ffffff;
-  color: #1e1e1e;
-  background-image: radial-gradient(circle, var(--dot) 1px, transparent 1.2px);
-  touch-action: none;
-  user-select: none;
+}
+
+#viewport[data-paper="dark"] {
+  --vscode-editor-background: #121212;
+  --vscode-editor-foreground: #e3e3e8;
+  --vscode-editorWidget-background: #1b1b1f;
+  --vscode-input-background: #1b1b1f;
+  --vscode-input-foreground: #e3e3e8;
+  --vscode-textLink-foreground: #74b0ff;
+  --vscode-textCodeBlock-background: rgba(255, 255, 255, 0.08);
+  --vscode-button-secondaryBackground: #2a2a30;
+  --vscode-button-secondaryForeground: #e3e3e8;
+  --card-bg: #1b1b1f;
+  --card-border: #d0d0d6;
+  --muted: #9c9ca4;
+  --dot: #34343a;
+  --edge: #d0d0d6;
 }
 
 #viewport.far {
@@ -101,6 +122,21 @@ button {
   height: 1px;
   overflow: visible;
   pointer-events: none;
+}
+
+#guides {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  overflow: visible;
+  pointer-events: none;
+}
+
+#guides line {
+  stroke: #e03131;
+  stroke-width: var(--guide-width, 1px);
 }
 
 #marquee {
@@ -403,6 +439,32 @@ button {
 .resize-ne { right: -7px; top: -7px; cursor: nesw-resize; }
 .resize-sw { left: -7px; bottom: -7px; cursor: nesw-resize; }
 
+/* Two or more selected cards share one box; their own resize handles go away. */
+#viewport.multi .node.selected > .resize {
+  display: none;
+}
+
+#selection-box {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px dashed var(--accent);
+  pointer-events: none;
+  z-index: 5;
+}
+
+#selection-box[hidden],
+#selection-box.locked > .resize {
+  display: none;
+}
+
+#selection-box > .resize {
+  pointer-events: auto;
+}
+
+#selection-box > .resize-nw::after,
+#selection-box > .resize-ne::after,
+#selection-box > .resize-se::after,
+#selection-box > .resize-sw::after,
 .node.selected > .resize-nw::after,
 .node.selected > .resize-ne::after,
 .node.selected > .resize-se::after,
@@ -529,7 +591,9 @@ button {
 }
 
 #error[hidden],
-#marquee[hidden] {
+#marquee[hidden],
+#empty-hint[hidden],
+#shortcut-panel[hidden] {
   display: none;
 }
 
@@ -620,6 +684,8 @@ button {
 
 #props[hidden],
 #props:not(.has-edges) .edge-tools,
+#props:not(.can-align) .arrange-tools,
+#props:not(.can-distribute) .distribute-tools,
 #props:not(.has-shapes) .shape-tools,
 #props:not(.has-text) .text-tools,
 #props:not(.has-border) .border-tools,
@@ -817,6 +883,64 @@ button {
   height: 16px;
 }
 
+#props .actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+#props button:disabled,
+#props input:disabled,
+#props button:disabled:hover {
+  opacity: 0.4;
+  cursor: default;
+  background: transparent;
+}
+
+/* ------------------------------------------------------------ lock */
+
+/* A locked element cannot be resized or turned; a small lock shows on hover and when selected. */
+.node.locked > .resize,
+.node.selected.locked > .rotate {
+  display: none;
+}
+
+.lock-badge {
+  position: absolute;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  color: var(--muted);
+  pointer-events: none;
+  z-index: 3;
+}
+
+.node > .lock-badge {
+  right: -9px;
+  top: -9px;
+}
+
+.edge-lock {
+  transform: translate(-50%, -50%);
+}
+
+.lock-badge svg {
+  width: 11px;
+  height: 11px;
+}
+
+.node.locked:hover > .lock-badge,
+.node.locked.selected > .lock-badge,
+.edge-lock.hover,
+.edge-lock.selected {
+  display: flex;
+}
+
 /* Small pictures of edges on the buttons. */
 
 .style-icon {
@@ -1010,6 +1134,27 @@ button {
   stroke-dasharray: 6 4;
 }
 
+#viewport.hand:not(.panning),
+#viewport.hand:not(.panning) * {
+  cursor: grab !important;
+}
+
+/* The key of a toolbar button, small in its corner. */
+#toolbar > button {
+  position: relative;
+}
+
+.key-hint {
+  position: absolute;
+  right: 2px;
+  bottom: 0;
+  font-family: inherit;
+  font-size: 8px;
+  line-height: 1;
+  opacity: 0.6;
+  pointer-events: none;
+}
+
 #toolbar button.active {
   background: color-mix(in srgb, var(--accent) 25%, transparent);
   color: var(--vscode-textLink-foreground, var(--accent));
@@ -1139,4 +1284,129 @@ button {
 
 .stroke-extra .shape-outline path {
   stroke-width: 5.5px;
+}
+
+/* ------------------------------------------------------------ empty canvas, shortcut overview */
+
+#empty-hint {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  max-width: 80%;
+  text-align: center;
+  color: var(--muted);
+  font-size: 15px;
+  pointer-events: none;
+}
+
+#shortcut-panel {
+  position: absolute;
+  top: 12px;
+  right: 60px;
+  max-height: calc(100% - 24px);
+  overflow: auto;
+  box-sizing: border-box;
+  padding: 12px 16px;
+  border-radius: 8px;
+  background: var(--bar-bg);
+  border: 1px solid var(--card-border);
+  box-shadow: 0 6px 20px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.25));
+  z-index: 30;
+}
+
+#shortcut-panel h2 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+#shortcut-panel .groups {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(200px, 1fr));
+  gap: 4px 24px;
+}
+
+#shortcut-panel h3 {
+  margin: 8px 0 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+#shortcut-panel dl {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 3px 12px;
+  margin: 0;
+}
+
+#shortcut-panel dt,
+#shortcut-panel dd {
+  margin: 0;
+}
+
+#shortcut-panel dd {
+  text-align: right;
+  white-space: nowrap;
+}
+
+#shortcut-panel kbd {
+  padding: 0 4px;
+  border-radius: 3px;
+  border: 1px solid color-mix(in srgb, var(--card-border) 60%, transparent);
+  font-family: inherit;
+  font-size: 11px;
+}
+
+#zoombar button.active {
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+/* ------------------------------------------------------------ context menu */
+
+#context-menu {
+  position: fixed;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  min-width: 200px;
+  padding: 4px;
+  border-radius: 8px;
+  background: var(--vscode-menu-background, var(--bar-bg));
+  color: var(--vscode-menu-foreground, inherit);
+  border: 1px solid var(--vscode-menu-border, var(--card-border));
+  box-shadow: 0 6px 20px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.25));
+}
+
+#context-menu button {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+#context-menu button:hover:not(:disabled) {
+  background: var(--vscode-menu-selectionBackground, color-mix(in srgb, var(--accent) 25%, transparent));
+  color: var(--vscode-menu-selectionForeground, inherit);
+}
+
+#context-menu button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+#context-menu kbd {
+  font-family: inherit;
+  opacity: 0.7;
+}
+
+#context-menu .separator {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--vscode-menu-separatorBackground, color-mix(in srgb, var(--card-border) 40%, transparent));
 }

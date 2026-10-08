@@ -47,6 +47,16 @@ Obsidian shows all three as plain text cards.
 
 **Drawing style**: how lines are sketched with Rough.js: **architect** (clean), **artist** (light hand, the default) or **cartoonist** (very sketchy). Set on the extension setting, the canvas or one element; the most specific wins. The data stays the same, only the drawing changes. _Avoid_: theme, mode.
 
+**Layer order**: which card lies on top of which. It is the order of `nodes` in the file: later is on top. Groups always lie behind every card and move only among groups.
+
+**Lock**: a card, group or connection that cannot be moved, resized, turned, edited, restyled or deleted. A click still selects it, so it can be unlocked. Saved as `"locked": true`, an extension property. A group that moves carries its locked cards ([ADR 1](docs/adr/0001-lock-and-groups.md)).
+
+**Snap guide**: the thin line that shows a moved or resized card lining up with an edge or center of a card nearby. Within 6 screen pixels the card snaps to it; on an axis with no guide it snaps to the grid. Code: `snapGuides`.
+
+**Sticky style**: the color and look picked last in the properties panel. New cards, shapes and free text take what fits them, as new connections take the edge style picked last. Kept in the webview, never in the file. Code: `nodeDefaults`, `edgeDefaults`.
+
+**Paper**: the canvas background with its ink: light (white paper, dark ink) or dark. The setting `canvas.theme` picks it, or the VS Code theme does. Only the look; the file stays the same. Code and CSS say paper (`data-paper`), since "theme" is a word to avoid for drawing style.
+
 **Turn**: a card's rotation, clockwise in degrees, set with the turn handle. Saved as `rotation`.
 
 **Text scale**: how much bigger free text is drawn after being scaled by a corner handle. Saved as `textScale`.
@@ -59,6 +69,12 @@ Obsidian shows all three as plain text cards.
 
 **Commit**: the webview writing the whole canvas back to the document. The document is the state; undo and redo are VS Code's.
 
+**Context menu**: the menu a right-click opens, for the selection or for the empty canvas. The canvas draws its own; VS Code's webview menu stays away.
+
+**Shortcut overview**: the panel that lists every key, grouped by tools, editing, view and navigation. Opened with `?` or the button in the zoom bar.
+
 **Properties panel**: the panel on the left that shows and sets the look of the selection.
 
-**Bottom toolbar**: the row of buttons that adds cards, shapes, text, files, images, links and groups.
+**Bottom toolbar**: the row of buttons that picks a tool and adds cards, shapes, text, files, images, links and groups.
+
+**Tool**: what a press on the canvas does. Code: `Tool`. The **select tool** (V) selects, moves and resizes; the **hand tool** (H) pans with a left drag; the text and shape tools place free text and shapes.

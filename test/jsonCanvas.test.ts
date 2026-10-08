@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cssColor, isImagePath, newId, parseCanvas, serializeCanvas } from "../src/jsonCanvas";
+import { cssColor, isImagePath, isLocked, newId, parseCanvas, serializeCanvas, setLocked } from "../src/jsonCanvas";
 
 describe("parseCanvas", () => {
   it("reads an empty file as an empty canvas", () => {
@@ -81,5 +81,36 @@ describe("helpers", () => {
   it("knows images", () => {
     expect(isImagePath("a/b.PNG")).toBe(true);
     expect(isImagePath("a/b.md")).toBe(false);
+  });
+});
+
+describe("lock", () => {
+  it("is saved as locked: true and left out of the file when off", () => {
+    const node = { id: "a", type: "text" as const, text: "", x: 0, y: 0, width: 1, height: 1 };
+    expect(isLocked(node)).toBe(false);
+    setLocked(node, true);
+    expect(node).toHaveProperty("locked", true);
+    expect(isLocked(node)).toBe(true);
+    setLocked(node, false);
+    expect(node).not.toHaveProperty("locked");
+  });
+
+  it("survives a round trip, on cards and connections", () => {
+    const text = serializeCanvas({
+      nodes: [
+        { id: "a", type: "text", text: "", x: 0, y: 0, width: 1, height: 1, locked: true },
+        { id: "b", type: "text", text: "", x: 0, y: 0, width: 1, height: 1 },
+      ],
+      edges: [{ id: "e", fromNode: "a", toNode: "b", locked: true }],
+    });
+    const data = parseCanvas(text);
+    expect(isLocked(data.nodes[0]!)).toBe(true);
+    expect(isLocked(data.nodes[1]!)).toBe(false);
+    expect(isLocked(data.edges[0]!)).toBe(true);
+    expect(serializeCanvas(data)).toBe(text);
+  });
+
+  it("counts only true as locked", () => {
+    expect(isLocked({ id: "e", fromNode: "a", toNode: "b", locked: "yes" })).toBe(false);
   });
 });

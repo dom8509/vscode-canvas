@@ -22,6 +22,8 @@ import {
   nodeLook,
   rotationOf,
   isImageFile,
+  isLocked,
+  setLocked,
   isImagePath,
   isTextPath,
   newId,
@@ -56,11 +58,13 @@ import {
   resizedCorner,
   rotatePoint,
   sideFacing,
+  turnedBounds,
   turnedSide,
   snap,
   zoomAt,
 } from "./geometry";
 import { sectionText } from "../src/subpath";
+import { type AlignEdge, type Guide, type LayerOp, align, distribute, reorder, scaleRects, snapGuides } from "./arrange";
 import {
   DEFAULT_DRAWING_STYLE,
   DRAWING_STYLE_NAMES,
@@ -73,6 +77,15 @@ import {
 import { sketchPath } from "./sketch";
 import { escapeHtml, renderMarkdown, stripFrontMatter } from "./markdown";
 import { defaultShapeSize, shapeMarks, shapePath } from "./shapes";
+import { icon, shapeIcon, title } from "./icons";
+import { SELECT, type Tool, showTool, toolbarHtml } from "./toolbar";
+import { matchesShortcut, tooltip } from "./shortcuts";
+import { isShortcutPanelOpen, shortcutPanelHtml, toggleShortcutPanel } from "./shortcutPanel";
+import { closeContextMenu, isContextMenuOpen, openContextMenu } from "./contextMenu";
+import { menuItems } from "./contextMenuItems";
+import { resolveTheme } from "./theme";
+import { type NodeDefaults, pickNodeDefaults } from "./nodeDefaults";
+import { coalescer } from "./coalesce";
 
 declare function acquireVsCodeApi(): {
   postMessage(msg: WebviewMessage): void;
@@ -109,11 +122,20 @@ let lastPointer: Point = { x: 0, y: 0 };
 let clipboard: { nodes: CanvasNode[]; edges: CanvasEdge[] } | null = null;
 /** The drawing style from the VS Code settings. A canvas and its elements can name their own. */
 let settingsStyle: DrawingStyleName = DEFAULT_DRAWING_STYLE;
+/** The `canvas.theme` setting: auto, light or dark. */
+let themeSetting = "auto";
 
-const saved = vscode.getState() as { view?: View; edgeDefaults?: Partial<EdgeStyle> } | undefined;
+const saved = vscode.getState() as { view?: View; edgeDefaults?: Partial<EdgeStyle>; nodeDefaults?: NodeDefaults } | undefined;
 if (saved?.view) view = saved.view;
 /** The look last picked in the style bar. New edges get it, as in Excalidraw. */
 let edgeDefaults: Partial<EdgeStyle> = saved?.edgeDefaults ?? {};
+/** The color and look last picked for cards. New cards, shapes and free text get what fits them. */
+let nodeDefaults: NodeDefaults = saved?.nodeDefaults ?? {};
+
+/** Keeps the view and the sticky styles over a reload of the webview. */
+function saveState(): void {
+  vscode.setState({ view, edgeDefaults, nodeDefaults });
+}
 
 // ---------------------------------------------------------------- DOM
 
@@ -125,25 +147,17 @@ app.innerHTML = `
       <svg id="edges"></svg>
       <div id="nodes"></div>
       <div id="labels"></div>
+      <div id="selection-box" hidden></div>
+      <svg id="guides"></svg>
     </div>
     <div id="marquee" hidden></div>
+    <div id="empty-hint" hidden>Double-click to write · T text · R O shapes · drop files here · ? shortcuts</div>
   </div>
   <div id="error" hidden>
     <p></p>
     <button data-action="source">Open as text</button>
   </div>
-  <div id="toolbar">
-    <button data-action="text" title="Add card (or double-click the canvas)">${icon("card")}</button>
-    <button data-action="text-tool" title="Text (T): click on the canvas to write">${icon("type")}</button>
-    <button data-action="shapes" title="Shapes (R, O): pick one, then click or drag on the canvas">${icon("shapes")}</button>
-    <button data-action="file" title="Add note or media from the workspace">${icon("file")}</button>
-    <button data-action="image" title="Add image (or paste one with Ctrl+V)">${icon("image")}</button>
-    <button data-action="link" title="Add web page">${icon("link")}</button>
-    <button data-action="group" title="Add group (around the selection, if any)">${icon("group")}</button>
-    <div id="shape-menu" hidden>
-      ${SHAPES.map((k) => `<button data-shape="${k}" title="${title(k.replace("-", " "))}">${shapeIcon(k)}</button>`).join("")}
-    </div>
-  </div>
+  ${toolbarHtml()}
   <div id="props" hidden>
     <section>
       <h3>Color</h3>
@@ -180,24 +194,33 @@ app.innerHTML = `
         <button class="picker" data-menu="toHead" title="End"></button>
       </div>
     </section>
+    <section class="arrange-tools">
+      <h3>Align</h3>
+      <div class="segmented">${(["left", "center", "right"] as const).map((v) => `<button data-align="${v}" title="Align ${v}">${icon(`align-${v}`)}</button>`).join("")}</div>
+      <div class="segmented">${(["top", "middle", "bottom"] as const).map((v) => `<button data-align="${v}" title="Align ${v}">${icon(`align-${v}`)}</button>`).join("")}</div>
+      <div class="segmented distribute-tools">${(["horizontal", "vertical"] as const).map((v) => `<button data-distribute="${v}" title="Distribute ${v}ly">${icon(`distribute-${v}`)}</button>`).join("")}</div>
+    </section>
     <section>
       <h3>Style</h3>
       <div class="segmented">${DRAWING_STYLE_NAMES.map((v) => `<button data-drawing="${v}" title="${title(v)}">${drawingStyleIcon(v)}</button>`).join("")}</div>
     </section>
-    <section>
-      <button class="action danger" data-action="delete" title="Delete (Del)">${icon("trash")}<span>Delete</span></button>
+    <section class="actions">
+      <button class="action" data-action="lock"></button>
+      <button class="action danger" data-action="delete" title="${tooltip("delete")}">${icon("trash")}<span>Delete</span></button>
     </section>
     <div id="head-menu" hidden></div>
   </div>
   <div id="zoombar">
-    <button data-action="zoom-in" title="Zoom in">${icon("plus")}</button>
-    <button data-action="zoom-reset" id="zoom-level" title="Reset zoom">100%</button>
-    <button data-action="zoom-out" title="Zoom out">${icon("minus")}</button>
-    <button data-action="fit" title="Zoom to fit (Shift+1)">${icon("fit")}</button>
+    <button data-action="zoom-in" title="${tooltip("zoomIn")}">${icon("plus")}</button>
+    <button data-action="zoom-reset" id="zoom-level" title="${tooltip("zoomReset", "Reset zoom")}">100%</button>
+    <button data-action="zoom-out" title="${tooltip("zoomOut")}">${icon("minus")}</button>
+    <button data-action="fit" title="${tooltip("fit")}">${icon("fit")}</button>
     <button data-action="canvas-style" id="canvas-style"></button>
-    <button data-action="undo" title="Undo (Ctrl+Z)">${icon("undo")}</button>
-    <button data-action="redo" title="Redo (Ctrl+Shift+Z)">${icon("redo")}</button>
+    <button data-action="undo" title="${tooltip("undo")}">${icon("undo")}</button>
+    <button data-action="redo" title="${tooltip("redo")}">${icon("redo")}</button>
+    <button data-action="help" title="${tooltip("help")}">${icon("help")}</button>
   </div>
+  ${shortcutPanelHtml()}
 `;
 
 const viewport = document.getElementById("viewport")!;
@@ -206,6 +229,8 @@ const groupsLayer = document.getElementById("groups")!;
 const nodesLayer = document.getElementById("nodes")!;
 const edgesLayer = document.getElementById("edges") as unknown as SVGSVGElement;
 const labelsLayer = document.getElementById("labels")!;
+const guidesLayer = document.getElementById("guides") as unknown as SVGSVGElement;
+const selectionBox = document.getElementById("selection-box")!;
 const marquee = document.getElementById("marquee")!;
 const errorBox = document.getElementById("error")!;
 const props = document.getElementById("props")!;
@@ -213,6 +238,7 @@ const headMenu = document.getElementById("head-menu")!;
 const shapeMenu = document.getElementById("shape-menu")!;
 const toolbar = document.getElementById("toolbar")!;
 const zoomLevel = document.getElementById("zoom-level")!;
+const emptyHint = document.getElementById("empty-hint")!;
 
 
 /** The SVG stroke settings of an edge's line. */
@@ -243,17 +269,6 @@ function segmented(key: keyof EdgeStyle, values: readonly string[]): string {
     .join("");
   return `<div class="segmented">${buttons}</div>`;
 }
-
-function title(value: string): string {
-  return value[0]!.toUpperCase() + value.slice(1);
-}
-
-/** A small picture of a shape for menus. */
-function shapeIcon(shape: ShapeKind): string {
-  const marks = shapeMarks(shape, 24, 20, 2);
-  return `<svg class="shape-icon" viewBox="0 0 24 20" width="24" height="20"><path d="${shapePath(shape, 24, 20, 2)}"/>${marks ? `<path d="${marks}"/>` : ""}</svg>`;
-}
-
 
 /** A wavy line drawn in a drawing style: clean, a little sketchy or very sketchy. */
 function drawingStyleIcon(style: DrawingStyleName): string {
@@ -295,26 +310,6 @@ function segmentedLook(key: keyof NodeLook, values: readonly string[]): string {
   return `<div class="segmented">${buttons}</div>`;
 }
 
-function icon(name: string): string {
-  const paths: Record<string, string> = {
-    card: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9h10M7 13h7"/>',
-    file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
-    image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/>',
-    link: '<path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/>',
-    type: '<path d="M5 6V4h14v2M12 4v16M9 20h6"/>',
-    shapes: '<rect x="3" y="3" width="10" height="10" rx="2"/><circle cx="16.5" cy="16.5" r="4.5"/>',
-    group: '<rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="3 3"/><rect x="7" y="8" width="6" height="5" rx="1"/>',
-    trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
-    plus: '<path d="M12 5v14M5 12h14"/>',
-    minus: '<path d="M5 12h14"/>',
-    fit: '<path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/>',
-    undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/>',
-    redo: '<path d="m15 14 5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h3"/>',
-    open: '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
-  };
-  return `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${paths[name]}</svg>`;
-}
-
 // ---------------------------------------------------------------- helpers
 
 function nodeById(id: string): CanvasNode | undefined {
@@ -352,9 +347,18 @@ function snapshot(): string {
 
 /** Writes the canvas to the document and redraws. Undo and redo are VS Code's, on that document. */
 function commit(): void {
+  nudges.flush();
   post({ type: "edit", text: snapshot() });
   render();
 }
+
+/** The canvas after the last arrow-key nudge, written when the nudges stop: nudges in a row are one undo step. */
+let nudged = "";
+const nudges = coalescer(() => post({ type: "edit", text: nudged }), 500);
+
+// Write a waiting nudge before the canvas can be saved, closed or left.
+window.addEventListener("blur", () => nudges.flush());
+document.addEventListener("visibilitychange", () => nudges.flush());
 
 // ---------------------------------------------------------------- view
 
@@ -364,8 +368,16 @@ function applyView(): void {
   viewport.style.backgroundSize = `${GRID * view.zoom}px ${GRID * view.zoom}px`;
   viewport.classList.toggle("far", view.zoom < 0.5);
   zoomLevel.textContent = `${Math.round(view.zoom * 100)}%`;
-  vscode.setState({ view, edgeDefaults });
+  saveState();
 }
+
+/** Light or dark paper, by the setting and the VS Code theme. The file does not change. */
+function applyPaper(): void {
+  viewport.dataset.paper = resolveTheme(themeSetting, document.body.className);
+}
+
+// VS Code changes the body's classes when the person switches theme.
+new MutationObserver(applyPaper).observe(document.body, { attributes: true, attributeFilter: ["class"] });
 
 function zoomBy(factor: number, at?: Point): void {
   const r = viewport.getBoundingClientRect();
@@ -387,8 +399,10 @@ function fitToContent(nodes: CanvasNode[] = data.nodes): void {
 // ---------------------------------------------------------------- rendering
 
 function render(): void {
+  emptyHint.hidden = data.nodes.length > 0;
   renderNodes();
   renderEdges();
+  updateSelectionBox();
   updateColorbar();
   updateCanvasStyleButton();
 }
@@ -402,6 +416,7 @@ function renderNodes(): void {
     el.className = `node type-${node.type}`;
     el.dataset.id = node.id;
     el.classList.toggle("selected", selection.has(node.id));
+    el.classList.toggle("locked", isLocked(node));
     const color = cssColor(node.color);
     if (color) el.style.setProperty("--node-color", color);
     el.classList.toggle("colored", !!color);
@@ -434,6 +449,7 @@ function renderNodes(): void {
       nodesLayer.append(el);
     }
     drawOutline(el, node);
+    if (isLocked(node)) el.insertAdjacentHTML("beforeend", `<div class="lock-badge" title="Locked">${icon("lock")}</div>`);
 
     for (const side of SIDES) {
       const h = document.createElement("div");
@@ -498,6 +514,19 @@ const RESIZE_HANDLES: [string, Pull, Pull][] = [
   ["nw", -1, -1], ["n", 0, -1], ["ne", 1, -1], ["e", 1, 0],
   ["se", 1, 1], ["s", 0, 1], ["sw", -1, 1], ["w", -1, 0],
 ];
+
+selectionBox.innerHTML = RESIZE_HANDLES.map(([dir, dx, dy]) => `<div class="resize resize-${dir}" data-dx="${dx}" data-dy="${dy}"></div>`).join("");
+
+/** Two or more selected cards share one box with eight handles, instead of the handles of each card. */
+function updateSelectionBox(): void {
+  const nodes = selectedNodes();
+  const b = nodes.length >= 2 && editing === null ? boundsOf(nodes.map(outlineOf)) : undefined;
+  viewport.classList.toggle("multi", !!b);
+  selectionBox.hidden = !b;
+  if (!b) return;
+  selectionBox.classList.toggle("locked", nodes.some(isLocked));
+  Object.assign(selectionBox.style, { left: `${b.x}px`, top: `${b.y}px`, width: `${b.width}px`, height: `${b.height}px` });
+}
 
 /** Free text is as big as its text, as in Excalidraw. Once resized by hand it keeps its width and wraps. */
 const measurer = document.createElement("div");
@@ -641,65 +670,99 @@ function canRotate(node: CanvasNode): boolean {
 function renderEdges(): void {
   edgesLayer.replaceChildren();
   labelsLayer.replaceChildren();
+  for (const edge of data.edges) drawEdge(edge);
+}
+
+/** Redraws only the connections of the given cards, so a drag on a big canvas stays smooth. */
+function redrawEdgesOf(ids: Set<string>): void {
   for (const edge of data.edges) {
-    const geo = edgeGeometry(edge);
-    if (!geo) continue;
-    const g = document.createElementNS(SVG_NS, "g");
-    g.classList.add("edge");
-    g.dataset.id = edge.id;
-    if (selection.has(edge.id)) g.classList.add("selected");
-    const color = cssColor(edge.color);
-    if (color) g.style.setProperty("--edge-color", color);
-    const style = edgeStyle(edge);
-    const { width, dash } = strokeOf(style);
-    g.style.setProperty("--edge-width", `${width}px`);
+    if (!ids.has(edge.fromNode) && !ids.has(edge.toNode)) continue;
+    world.querySelectorAll(`#edges [data-id="${CSS.escape(edge.id)}"], #labels [data-id="${CSS.escape(edge.id)}"]`).forEach((el) => el.remove());
+    drawEdge(edge);
+  }
+}
 
-    const hit = document.createElementNS(SVG_NS, "path");
-    hit.setAttribute("d", geo.d);
-    hit.classList.add("hit");
-    const path = document.createElementNS(SVG_NS, "path");
-    const drawing = styleOf(edge);
-    const seed = seedOf(edge.id);
-    path.setAttribute("d", sketchPath(geo.d, seed, drawing));
-    path.classList.add("line");
-    if (dash) path.setAttribute("stroke-dasharray", dash);
-    g.append(hit, path);
+function drawEdge(edge: CanvasEdge): void {
+  const geo = edgeGeometry(edge);
+  if (!geo) return;
+  const g = document.createElementNS(SVG_NS, "g");
+  g.classList.add("edge");
+  g.dataset.id = edge.id;
+  if (selection.has(edge.id)) g.classList.add("selected");
+  const color = cssColor(edge.color);
+  if (color) g.style.setProperty("--edge-color", color);
+  const style = edgeStyle(edge);
+  const { width, dash } = strokeOf(style);
+  g.style.setProperty("--edge-width", `${width}px`);
 
-    const size = 8 + width * 2;
-    // Heads are sketched like the line: a filled head gets a plain fill under its sketched outline.
-    for (const [k, head] of [headPath(style.toHead, geo.end, geo.endDir, size), headPath(style.fromHead, geo.start, geo.startDir, size)].entries()) {
-      if (!head) continue;
-      if (head.filled) g.insertAdjacentHTML("beforeend", `<path class="fill" d="${head.d}"/>`);
-      g.insertAdjacentHTML("beforeend", `<path class="stroke head" d="${sketchPath(head.d, seed + 1 + k, drawing)}"/>`);
-    }
-    edgesLayer.append(g);
+  const hit = document.createElementNS(SVG_NS, "path");
+  hit.setAttribute("d", geo.d);
+  hit.classList.add("hit");
+  const path = document.createElementNS(SVG_NS, "path");
+  const drawing = styleOf(edge);
+  const seed = seedOf(edge.id);
+  path.setAttribute("d", sketchPath(geo.d, seed, drawing));
+  path.classList.add("line");
+  if (dash) path.setAttribute("stroke-dasharray", dash);
+  g.append(hit, path);
 
-    if (edge.label) {
-      const label = document.createElement("div");
-      label.className = "edge-label";
-      label.dataset.id = edge.id;
-      label.classList.toggle("selected", selection.has(edge.id));
-      if (color) label.style.setProperty("--edge-color", color);
-      label.textContent = edge.label;
-      label.style.left = `${geo.mid.x}px`;
-      label.style.top = `${geo.mid.y}px`;
-      labelsLayer.append(label);
-    }
+  const size = 8 + width * 2;
+  // Heads are sketched like the line: a filled head gets a plain fill under its sketched outline.
+  for (const [k, head] of [headPath(style.toHead, geo.end, geo.endDir, size), headPath(style.fromHead, geo.start, geo.startDir, size)].entries()) {
+    if (!head) continue;
+    if (head.filled) g.insertAdjacentHTML("beforeend", `<path class="fill" d="${head.d}"/>`);
+    g.insertAdjacentHTML("beforeend", `<path class="stroke head" d="${sketchPath(head.d, seed + 1 + k, drawing)}"/>`);
+  }
+  edgesLayer.append(g);
+
+  if (isLocked(edge)) {
+    const badge = document.createElement("div");
+    badge.className = "lock-badge edge-lock";
+    badge.dataset.id = edge.id;
+    badge.classList.toggle("selected", selection.has(edge.id));
+    badge.innerHTML = icon("lock");
+    badge.style.left = `${geo.mid.x}px`;
+    badge.style.top = `${geo.mid.y + (edge.label ? 22 : 0)}px`;
+    g.addEventListener("pointerenter", () => badge.classList.add("hover"));
+    g.addEventListener("pointerleave", () => badge.classList.remove("hover"));
+    labelsLayer.append(badge);
+  }
+
+  if (edge.label) {
+    const label = document.createElement("div");
+    label.className = "edge-label";
+    label.dataset.id = edge.id;
+    label.classList.toggle("selected", selection.has(edge.id));
+    if (color) label.style.setProperty("--edge-color", color);
+    label.textContent = edge.label;
+    label.style.left = `${geo.mid.x}px`;
+    label.style.top = `${geo.mid.y}px`;
+    labelsLayer.append(label);
   }
 }
 
 
 /** Shows a changed selection without redrawing, so the elements under the pointer stay the same (a double-click needs that). */
 function showSelection(): void {
-  world.querySelectorAll<HTMLElement>(".node, .edge, .edge-label").forEach((el) => {
+  world.querySelectorAll<HTMLElement>(".node, .edge, .edge-label, .edge-lock").forEach((el) => {
     el.classList.toggle("selected", selection.has(el.dataset.id!));
   });
   updateColorbar();
+  updateSelectionBox();
 }
 
 function updateColorbar(): void {
   props.hidden = selection.size === 0 || editing !== null;
   const items = [...selection].map((id) => nodeById(id) ?? edgeById(id)).filter(Boolean);
+  // A locked selection shows its look, but only the lock can be changed.
+  const locked = selectionLocked();
+  props.classList.toggle("locked", locked);
+  props.querySelectorAll<HTMLButtonElement | HTMLInputElement>("button, input").forEach((b) => {
+    b.disabled = locked && b.dataset.action !== "lock";
+  });
+  const lockButton = props.querySelector<HTMLElement>('[data-action="lock"]')!;
+  lockButton.innerHTML = `${icon(locked ? "unlock" : "lock")}<span>${locked ? "Unlock" : "Lock"}</span>`;
+  lockButton.title = tooltip("lock", locked ? "Unlock" : "Lock");
   const colors = new Set(items.map((i) => i!.color ?? ""));
   const current = colors.size === 1 ? [...colors][0]! : null;
   props.querySelectorAll<HTMLElement>("[data-color]").forEach((b) => {
@@ -709,6 +772,9 @@ function updateColorbar(): void {
   // The edge properties show when edges are selected. A value all of them share is marked.
   const styles = [...selection].map(edgeById).filter((e): e is CanvasEdge => !!e).map(edgeStyle);
   props.classList.toggle("has-edges", styles.length > 0);
+  const cardCount = selectedNodes().length;
+  props.classList.toggle("can-align", cardCount >= 2);
+  props.classList.toggle("can-distribute", cardCount >= 3);
   const shared = <K extends keyof EdgeStyle>(key: K): EdgeStyle[K] | undefined =>
     styles.every((s) => s[key] === styles[0]?.[key]) ? styles[0]?.[key] : undefined;
   props.querySelectorAll<HTMLElement>("[data-style]").forEach((b) => {
@@ -776,15 +842,23 @@ function closeHeadMenu(): void {
   props.querySelectorAll(".picker.open").forEach((p) => p.classList.remove("open"));
 }
 
-/** The fill picked last. New shapes get it, as edges get their last style. */
-let shapeDefaults: Partial<NodeLook> = {};
+/** Gives a new card the color and look picked last, as far as they fit it. */
+function applyNodeDefaults(node: CanvasNode): CanvasNode {
+  const { color, ...look } = pickNodeDefaults(nodeDefaults, nodeLook(node).shape);
+  if (color) node.color = color;
+  setNodeLook(node, look);
+  return node;
+}
 
 /** Sets part of the look of the selected shapes and free text. */
 function setSelectedNodeLook(look: Partial<NodeLook>): void {
-  if (look.fill) shapeDefaults = { ...shapeDefaults, fill: look.fill };
+  const { shape: _shape, ...sticky } = look;
+  nodeDefaults = { ...nodeDefaults, ...sticky };
+  saveState();
   for (const id of selection) {
     const node = nodeById(id);
     if (node?.type !== "text" && node?.type !== "file") continue;
+    if (isLocked(node)) continue;
     const kind = nodeLook(node).shape;
     // Text settings fit every text card and note; a border not free text; shape and fill only shapes.
     const part: Partial<NodeLook> = node.type === "file" && isImagePath(node.file) ? {} : { fontSize: look.fontSize, fontFamily: look.fontFamily };
@@ -802,7 +876,7 @@ function setSelectedNodeLook(look: Partial<NodeLook>): void {
 function setSelectedDrawingStyle(name: DrawingStyleName): void {
   for (const id of selection) {
     const element = nodeById(id) ?? edgeById(id);
-    if (element) setDrawingStyle(element, name, canvasStyle());
+    if (element && !isLocked(element)) setDrawingStyle(element, name, canvasStyle());
   }
   commit();
 }
@@ -824,9 +898,10 @@ function updateCanvasStyleButton(): void {
 /** Sets part of the look of the selected edges, and of new ones. */
 function setSelectedEdgeStyle(style: Partial<EdgeStyle>): void {
   edgeDefaults = { ...edgeDefaults, ...style };
+  saveState();
   for (const id of selection) {
     const edge = edgeById(id);
-    if (edge) setEdgeStyle(edge, style);
+    if (edge && !isLocked(edge)) setEdgeStyle(edge, style);
   }
   commit();
 }
@@ -842,14 +917,14 @@ function addNode(node: CanvasNode, edit = false): void {
 }
 
 function textNodeAt(p: Point, text = ""): CanvasNode {
-  return { id: newId(), type: "text", text, x: snap(p.x - 125, GRID), y: snap(p.y - 30, GRID), width: 260, height: 80 };
+  return applyNodeDefaults({ id: newId(), type: "text", text, x: snap(p.x - 125, GRID), y: snap(p.y - 30, GRID), width: 260, height: 80 });
 }
 
 /** Empty free text whose first line starts at `p`, as in Excalidraw. Left empty, it disappears again. */
 function freeTextAt(p: Point): CanvasNode {
   const node: CanvasNode = { id: newId(), type: "text", text: "", x: p.x - 6, y: p.y - 14, width: 40, height: 28 };
   setNodeLook(node, { shape: "text" });
-  return node;
+  return applyNodeDefaults(node);
 }
 
 function fileNodeAt(p: Point, file: string): CanvasNode {
@@ -883,20 +958,92 @@ function addGroup(): void {
   renameGroup(group.id);
 }
 
+/**
+ * Deletes the selection, with the connections of the deleted cards. Locked elements stay, and so does
+ * a card with a locked connection: the connection cannot outlive it.
+ */
 function deleteSelection(): void {
+  const held = new Set(data.edges.filter(isLocked).flatMap((e) => [e.fromNode, e.toNode]));
+  const gone = new Set(selectedNodes().filter((n) => !isLocked(n) && !held.has(n.id)).map((n) => n.id));
+  const goneEdges = new Set(
+    data.edges.filter((e) => !isLocked(e) && (selection.has(e.id) || gone.has(e.fromNode) || gone.has(e.toNode))).map((e) => e.id),
+  );
+  if (!gone.size && !goneEdges.size) return;
+  data.nodes = data.nodes.filter((n) => !gone.has(n.id));
+  data.edges = data.edges.filter((e) => !goneEdges.has(e.id));
+  for (const id of [...gone, ...goneEdges]) selection.delete(id);
+  commit();
+}
+
+/** True when everything selected is locked. */
+function selectionLocked(): boolean {
+  const items = [...selection].map((id) => nodeById(id) ?? edgeById(id));
+  return items.length > 0 && items.every((i) => i && isLocked(i));
+}
+
+/** Locks the selection, or unlocks it when all of it is locked. */
+function toggleLock(): void {
   if (selection.size === 0) return;
-  data.nodes = data.nodes.filter((n) => !selection.has(n.id));
-  const ids = new Set(data.nodes.map((n) => n.id));
-  data.edges = data.edges.filter((e) => !selection.has(e.id) && ids.has(e.fromNode) && ids.has(e.toNode));
-  selection.clear();
+  const on = !selectionLocked();
+  for (const id of selection) {
+    const item = nodeById(id) ?? edgeById(id);
+    if (item) setLocked(item, on);
+  }
+  commit();
+}
+
+/** The upright box around a card as drawn, turned or not. Align, distribute and snap use it. */
+function outlineOf(node: CanvasNode): Rect {
+  return turnedBounds(node, rotationOf(node));
+}
+
+/** Moves the selected cards to their rects in `place`, given in the order of `cards`. A group takes its cards along. */
+function moveCardsTo(cards: CanvasNode[], place: Rect[]): void {
+  const moved = new Set<string>();
+  cards.forEach((n, i) => {
+    const before = outlineOf(n);
+    const dx = place[i]!.x - before.x;
+    const dy = place[i]!.y - before.y;
+    if (isLocked(n) || (!dx && !dy)) return;
+    const carried = n.type === "group" ? childrenOf(n).filter((c) => !selection.has(c.id)) : [];
+    for (const m of [n, ...carried]) {
+      if (moved.has(m.id)) continue;
+      moved.add(m.id);
+      m.x += dx;
+      m.y += dy;
+    }
+  });
+  if (moved.size) commit();
+}
+
+/** Lines up the selected cards; locked ones stay where they are. */
+function alignSelection(edge: AlignEdge): void {
+  const cards = selectedNodes();
+  moveCardsTo(cards, align(cards.map(outlineOf), edge));
+}
+
+function distributeSelection(axis: "horizontal" | "vertical"): void {
+  const cards = selectedNodes();
+  moveCardsTo(cards, distribute(cards.map(outlineOf), axis));
+}
+
+/** Moves the selected cards in the layer order. Groups move only among groups. */
+function reorderSelection(op: LayerOp): void {
+  const next = reorder(data.nodes, selection, op);
+  if (next.every((n, i) => n === data.nodes[i])) return;
+  data.nodes = next;
   commit();
 }
 
 function setColor(color: string): void {
   if (selection.size === 0) return;
+  if (selectedNodes().length) {
+    nodeDefaults = { ...nodeDefaults, color: color || undefined };
+    saveState();
+  }
   for (const id of selection) {
     const item = nodeById(id) ?? edgeById(id);
-    if (!item) continue;
+    if (!item || isLocked(item)) continue;
     if (color) item.color = color;
     else delete item.color;
   }
@@ -923,6 +1070,7 @@ function paste(fragment: { nodes: CanvasNode[]; edges: CanvasEdge[] }, at: Point
   selection.clear();
   for (const n of fragment.nodes) {
     const copy = { ...structuredClone(n), id: newId(), x: n.x + dx, y: n.y + dy };
+    setLocked(copy, false);
     map.set(n.id, copy.id);
     if (copy.type === "group") data.nodes.unshift(copy);
     else data.nodes.push(copy);
@@ -931,7 +1079,10 @@ function paste(fragment: { nodes: CanvasNode[]; edges: CanvasEdge[] }, at: Point
   for (const e of fragment.edges) {
     const from = map.get(e.fromNode);
     const to = map.get(e.toNode);
-    if (from && to) data.edges.push({ ...structuredClone(e), id: newId(), fromNode: from, toNode: to });
+    if (!from || !to) continue;
+    const copy = { ...structuredClone(e), id: newId(), fromNode: from, toNode: to };
+    setLocked(copy, false);
+    data.edges.push(copy);
   }
   commit();
 }
@@ -960,7 +1111,7 @@ function nodeElement(id: string): HTMLElement | null {
 function startEditing(id: string): void {
   const node = nodeById(id);
   const el = nodeElement(id);
-  if (!node || !el) return;
+  if (!node || !el || isLocked(node)) return;
   if (node.type === "group") return renameGroup(id);
   if (node.type === "file") return;
   editing = id;
@@ -1056,7 +1207,7 @@ function inlineInput(at: Point, value: string, onDone: (value: string) => void):
 
 function renameGroup(id: string): void {
   const group = nodeById(id);
-  if (!group || group.type !== "group") return;
+  if (!group || group.type !== "group" || isLocked(group)) return;
   inlineInput({ x: group.x, y: group.y - 34 }, group.label ?? "", (label) => {
     if (label) group.label = label;
     else delete group.label;
@@ -1067,7 +1218,7 @@ function renameGroup(id: string): void {
 function editEdgeLabel(id: string): void {
   const edge = edgeById(id);
   const geo = edge && edgeGeometry(edge);
-  if (!edge || !geo) return;
+  if (!edge || !geo || isLocked(edge)) return;
   inlineInput({ x: geo.mid.x - 80, y: geo.mid.y - 14 }, edge.label ?? "", (label) => {
     if (label) edge.label = label;
     else delete edge.label;
@@ -1080,8 +1231,9 @@ function editEdgeLabel(id: string): void {
 type Drag =
   | { kind: "pan"; start: Point; view: View }
   | { kind: "marquee"; start: Point; additive: Set<string> }
-  | { kind: "move"; start: Point; nodes: { node: CanvasNode; x: number; y: number }[]; moved: boolean; clickedId: string }
-  | { kind: "resize"; start: Point; node: CanvasNode; x: number; y: number; width: number; height: number; dx: Pull; dy: Pull; anchor: Point; scale: number }
+  | { kind: "move"; start: Point; nodes: { node: CanvasNode; x: number; y: number }[]; moved: boolean; clickedId: string; bounds: Rect; others: Rect[] }
+  | { kind: "resize"; start: Point; node: CanvasNode; x: number; y: number; width: number; height: number; dx: Pull; dy: Pull; anchor: Point; scale: number; others: Rect[] }
+  | { kind: "resize-many"; from: Rect; dx: Pull; dy: Pull; items: { node: CanvasNode; rect: Rect; scale: number }[]; others: Rect[]; changed: boolean }
   | { kind: "rotate"; node: CanvasNode; center: Point; startAngle: number; rotation: number }
   | { kind: "connect"; from: CanvasNode; side: Side; preview: SVGPathElement }
   | { kind: "draw"; start: Point; shape: ShapeKind; preview: HTMLElement }
@@ -1097,7 +1249,7 @@ viewport.addEventListener("pointerdown", (e) => {
   viewport.focus();
   const p = toWorld(e.clientX, e.clientY);
 
-  if (e.button === 1 || (e.button === 0 && spaceHeld)) {
+  if (e.button === 1 || (e.button === 0 && (spaceHeld || tool.kind === "hand"))) {
     e.preventDefault();
     drag = { kind: "pan", start: { x: e.clientX, y: e.clientY }, view: { ...view } };
     viewport.classList.add("panning");
@@ -1106,8 +1258,32 @@ viewport.addEventListener("pointerdown", (e) => {
   }
   if (e.button !== 0) return;
 
-  if (tool) {
+  if (tool.kind !== "select") {
     startPlacing(e, p);
+    return;
+  }
+
+  const boxHandle = target.closest<HTMLElement>("#selection-box > .resize");
+  if (boxHandle) {
+    // Every selected card scales, and the cards inside a selected group with it.
+    const scaled = new Map<string, CanvasNode>();
+    for (const n of selectedNodes()) {
+      scaled.set(n.id, n);
+      if (n.type === "group") for (const c of childrenOf(n)) scaled.set(c.id, c);
+    }
+    // A locked card stops the scaling; one inside a selected group goes along, as it does when the group moves.
+    if (selectedNodes().some(isLocked)) return;
+    const items = [...scaled.values()].map((node) => ({ node, rect: { x: node.x, y: node.y, width: node.width, height: node.height }, scale: textScaleOf(node) }));
+    drag = {
+      kind: "resize-many",
+      from: boundsOf(selectedNodes().map(outlineOf))!,
+      dx: Number(boxHandle.dataset.dx) as Pull,
+      dy: Number(boxHandle.dataset.dy) as Pull,
+      items,
+      others: snapCandidates(new Set(scaled.keys())),
+      changed: false,
+    };
+    viewport.setPointerCapture(e.pointerId);
     return;
   }
 
@@ -1135,18 +1311,19 @@ viewport.addEventListener("pointerdown", (e) => {
     return;
   }
 
-  if (node && target.classList.contains("resize")) {
+  if (node && !isLocked(node) && target.classList.contains("resize")) {
     // The corner or side opposite the handle stays where it is, also on a turned card.
     const dx = Number(target.dataset.dx) as Pull;
     const dy = Number(target.dataset.dy) as Pull;
     const anchor = resizeAnchor(node, dx, dy, rotationOf(node));
     const scale = textScaleOf(node);
-    drag = { kind: "resize", start: p, node, x: node.x, y: node.y, width: node.width, height: node.height, dx, dy, anchor, scale };
+    const others = snapCandidates(new Set([node.id]));
+    drag = { kind: "resize", start: p, node, x: node.x, y: node.y, width: node.width, height: node.height, dx, dy, anchor, scale, others };
     viewport.setPointerCapture(e.pointerId);
     return;
   }
 
-  if (node && target.classList.contains("rotate")) {
+  if (node && !isLocked(node) && target.classList.contains("rotate")) {
     const c = center(node);
     drag = { kind: "rotate", node, center: c, startAngle: angleTo(c, p), rotation: rotationOf(node) };
     viewport.setPointerCapture(e.pointerId);
@@ -1166,17 +1343,22 @@ viewport.addEventListener("pointerdown", (e) => {
       selection.clear();
       selection.add(node.id);
     }
+    // Locked cards stay put; a group that moves carries every card inside it, locked or not.
     const moving = new Map<string, CanvasNode>();
     for (const n of selectedNodes()) {
+      if (isLocked(n)) continue;
       moving.set(n.id, n);
       if (n.type === "group") for (const c of childrenOf(n)) moving.set(c.id, c);
     }
+    const movingNodes = [...moving.values()];
     drag = {
       kind: "move",
       start: p,
-      nodes: [...moving.values()].map((n) => ({ node: n, x: n.x, y: n.y })),
+      nodes: movingNodes.map((n) => ({ node: n, x: n.x, y: n.y })),
       moved: false,
       clickedId: node.id,
+      bounds: boundsOf(movingNodes.map(outlineOf)) ?? { ...p, width: 0, height: 0 },
+      others: snapCandidates(new Set(moving.keys())),
     };
     viewport.setPointerCapture(e.pointerId);
     showSelection();
@@ -1197,26 +1379,22 @@ viewport.addEventListener("pointerdown", (e) => {
 
 // ---------------------------------------------------------------- tools: text and shapes
 
-type Tool = { kind: "text" } | { kind: "shape"; shape: ShapeKind };
-let tool: Tool | null = null;
+let tool: Tool = SELECT;
 
-function setTool(next: Tool | null): void {
+function setTool(next: Tool): void {
   tool = next;
-  viewport.classList.toggle("placing", !!tool);
-  toolbar.querySelector('[data-action="text-tool"]')!.classList.toggle("active", tool?.kind === "text");
-  toolbar.querySelector('[data-action="shapes"]')!.classList.toggle("active", tool?.kind === "shape");
-  shapeMenu.hidden = true;
+  showTool(toolbar, viewport, tool);
 }
 
 /** With a tool picked, a click places text; a click or a drag places a shape. */
 function startPlacing(e: PointerEvent, p: Point): void {
-  if (!tool) return;
   if (tool.kind === "text") {
     // The text box opens on release: opening it now would lose the focus the press gives the canvas.
     drag = { kind: "text", start: p };
     viewport.setPointerCapture(e.pointerId);
     return;
   }
+  if (tool.kind !== "shape") return;
   const preview = document.createElement("div");
   preview.className = "draw-preview";
   nodesLayer.append(preview);
@@ -1237,6 +1415,33 @@ function drawRect(start: Point, p: Point, free: boolean): Rect {
 function insideGroupBody(group: CanvasNode, p: Point): boolean {
   const edge = 12 / view.zoom;
   return p.x > group.x + edge && p.x < group.x + group.width - edge && p.y > group.y + edge && p.y < group.y + group.height - edge;
+}
+
+// ---------------------------------------------------------------- snap guides
+
+/** How near, in screen pixels, an edge or center must come to another card's to snap to it. */
+const SNAP_PX = 6;
+
+function shifted(r: Rect, dx: number, dy: number): Rect {
+  return { ...r, x: r.x + dx, y: r.y + dy };
+}
+
+/** The outlines a drag can snap to: the cards in view, or within one viewport of it, except the ones that move. */
+function snapCandidates(moving: Set<string>): Rect[] {
+  const r = viewport.getBoundingClientRect();
+  const area = rectFromPoints(toWorld(r.left - r.width, r.top - r.height), toWorld(r.right + r.width, r.bottom + r.height));
+  return data.nodes.filter((n) => !moving.has(n.id)).map(outlineOf).filter((b) => rectsIntersect(b, area));
+}
+
+function showGuides(guides: Guide[]): void {
+  guidesLayer.innerHTML = guides
+    .map((g) =>
+      g.axis === "x"
+        ? `<line x1="${g.at}" y1="${g.from}" x2="${g.at}" y2="${g.to}"/>`
+        : `<line x1="${g.from}" y1="${g.at}" x2="${g.to}" y2="${g.at}"/>`,
+    )
+    .join("");
+  guidesLayer.style.setProperty("--guide-width", `${1 / view.zoom}px`);
 }
 
 function startMarquee(e: PointerEvent, p: Point): void {
@@ -1266,21 +1471,27 @@ viewport.addEventListener("pointermove", (e) => {
       marquee.hidden = false;
       selection.clear();
       drag.additive.forEach((id) => selection.add(id));
-      for (const n of data.nodes) if (rectsIntersect(r, n) && (n.type !== "group" || containsRect(r, n))) selection.add(n.id);
+      for (const n of data.nodes) {
+        if (!isLocked(n) && rectsIntersect(r, n) && (n.type !== "group" || containsRect(r, n))) selection.add(n.id);
+      }
       showSelection();
       break;
     }
     case "move": {
       let dx = p.x - drag.start.x;
       let dy = p.y - drag.start.y;
-      if (!drag.moved && Math.hypot(dx, dy) * view.zoom < 3) return;
+      if (!drag.nodes.length || (!drag.moved && Math.hypot(dx, dy) * view.zoom < 3)) return;
       drag.moved = true;
       if (!e.altKey) {
-        // Snap the clicked card to the grid; the others keep their offsets to it.
+        // Snap to the cards nearby; on an axis with none, snap the clicked card to the grid and keep the others' offsets to it.
+        const s = snapGuides(shifted(drag.bounds, dx, dy), drag.others, SNAP_PX / view.zoom);
         const clicked = drag.clickedId;
         const lead = drag.nodes.find((m) => m.node.id === clicked) ?? drag.nodes[0]!;
-        dx = snap(lead.x + dx, GRID) - lead.x;
-        dy = snap(lead.y + dy, GRID) - lead.y;
+        dx = s.dx !== undefined ? dx + s.dx : snap(lead.x + dx, GRID) - lead.x;
+        dy = s.dy !== undefined ? dy + s.dy : snap(lead.y + dy, GRID) - lead.y;
+        showGuides(snapGuides(shifted(drag.bounds, dx, dy), drag.others, 0.01).guides);
+      } else {
+        showGuides([]);
       }
       for (const m of drag.nodes) {
         m.node.x = m.x + dx;
@@ -1288,7 +1499,43 @@ viewport.addEventListener("pointermove", (e) => {
         const el = nodeElement(m.node.id);
         if (el) placeNode(el, m.node);
       }
-      renderEdges();
+      redrawEdgesOf(new Set(drag.nodes.map((m) => m.node.id)));
+      updateSelectionBox();
+      break;
+    }
+    case "resize-many": {
+      const { from, dx, dy } = drag;
+      const pointer = { ...p };
+      const guides: Guide[] = [];
+      if (!e.altKey) {
+        // The moving sides land on an edge or center of a card nearby, else on the grid.
+        const tolerance = SNAP_PX / view.zoom;
+        if (dx) {
+          const s = snapGuides({ x: p.x, y: from.y, width: 0, height: from.height }, drag.others, tolerance);
+          pointer.x = s.dx !== undefined ? p.x + s.dx : snap(p.x, GRID);
+          guides.push(...snapGuides({ x: pointer.x, y: from.y, width: 0, height: from.height }, drag.others, 0.01).guides.filter((g) => g.axis === "x"));
+        }
+        if (dy) {
+          const s = snapGuides({ x: from.x, y: p.y, width: from.width, height: 0 }, drag.others, tolerance);
+          pointer.y = s.dy !== undefined ? p.y + s.dy : snap(p.y, GRID);
+          guides.push(...snapGuides({ x: from.x, y: pointer.y, width: from.width, height: 0 }, drag.others, 0.01).guides.filter((g) => g.axis === "y"));
+        }
+      }
+      showGuides(guides);
+      const { box, rects } = scaleRects(drag.items.map((i) => i.rect), from, dx, dy, pointer, e.shiftKey);
+      const sx = box.width / from.width;
+      const sy = box.height / from.height;
+      drag.items.forEach((item, i) => {
+        const r = rects[i]!;
+        Object.assign(item.node, { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) });
+        // Free text scales its text with the box; stretched one way only, it keeps its size and wraps.
+        if (isFreeText(item.node)) setTextScale(item.node, item.scale * Math.min(sx, sy));
+        const el = nodeElement(item.node.id);
+        if (el) placeNode(el, item.node);
+      });
+      drag.changed = true;
+      redrawEdgesOf(new Set(drag.items.map((i) => i.node.id)));
+      updateSelectionBox();
       break;
     }
     case "resize": {
@@ -1310,16 +1557,29 @@ viewport.addEventListener("pointermove", (e) => {
         Object.assign(n, { width: w, height: h, x: corner.x, y: corner.y });
         const el = nodeElement(n.id);
         if (el) placeNode(el, n);
-        renderEdges();
+        redrawEdgesOf(new Set([n.id]));
         break;
       }
+      const guides: Guide[] = [];
       if (!turn && !e.altKey) {
-        // The moving side lands on the grid.
-        if (dx === 1) w = snap(drag.x + w, GRID) - drag.x;
-        if (dx === -1) w = drag.x + drag.width - snap(drag.x + drag.width - w, GRID);
-        if (dy === 1) h = snap(drag.y + h, GRID) - drag.y;
-        if (dy === -1) h = drag.y + drag.height - snap(drag.y + drag.height - h, GRID);
+        // The moving side lands on an edge or center of a card nearby, else on the grid.
+        const tolerance = SNAP_PX / view.zoom;
+        if (dx) {
+          const side = dx === 1 ? drag.x + w : drag.x + drag.width - w;
+          const s = snapGuides({ x: side, y: drag.y, width: 0, height: drag.height }, drag.others, tolerance);
+          const to = s.dx !== undefined ? side + s.dx : snap(side, GRID);
+          w = dx === 1 ? to - drag.x : drag.x + drag.width - to;
+          guides.push(...snapGuides({ x: to, y: drag.y, width: 0, height: drag.height }, drag.others, 0.01).guides.filter((g) => g.axis === "x"));
+        }
+        if (dy) {
+          const side = dy === 1 ? drag.y + h : drag.y + drag.height - h;
+          const s = snapGuides({ x: drag.x, y: side, width: drag.width, height: 0 }, drag.others, tolerance);
+          const to = s.dy !== undefined ? side + s.dy : snap(side, GRID);
+          h = dy === 1 ? to - drag.y : drag.y + drag.height - to;
+          guides.push(...snapGuides({ x: drag.x, y: to, width: drag.width, height: 0 }, drag.others, 0.01).guides.filter((g) => g.axis === "y"));
+        }
       }
+      showGuides(guides);
       w = Math.max(freeText ? 30 : 60, w);
       // Free text is never cut off: it is at least as tall as its wrapped text.
       const minH = isFreeText(n) ? measureText(n, renderMarkdown(n.text), w).height : 40;
@@ -1328,7 +1588,7 @@ viewport.addEventListener("pointermove", (e) => {
       Object.assign(n, { width: w, height: h, x: corner.x, y: corner.y });
       const el = nodeElement(n.id);
       if (el) placeNode(el, n);
-      renderEdges();
+      redrawEdgesOf(new Set([n.id]));
       break;
     }
     case "rotate": {
@@ -1337,7 +1597,7 @@ viewport.addEventListener("pointermove", (e) => {
       setRotation(drag.node, turn);
       const el = nodeElement(drag.node.id);
       if (el) placeNode(el, drag.node);
-      renderEdges();
+      redrawEdgesOf(new Set([drag.node.id]));
       break;
     }
     case "draw": {
@@ -1381,6 +1641,7 @@ function endDrag(e: PointerEvent): void {
   if (!drag) return;
   const d = drag;
   drag = null;
+  showGuides([]);
   const p = toWorld(e.clientX, e.clientY);
   switch (d.kind) {
     case "pan":
@@ -1414,12 +1675,22 @@ function endDrag(e: PointerEvent): void {
       }
       break;
     case "text": {
-      setTool(null);
+      setTool(SELECT);
       addNode(freeTextAt(d.start), true);
       break;
     }
     case "rotate":
       if (rotationOf(d.node) !== d.rotation) commit();
+      break;
+    case "resize-many":
+      if (!d.changed) break;
+      for (const { node, rect } of d.items) {
+        if (!isFreeText(node)) continue;
+        // Stretched more one way than the other, it keeps its new width and wraps, as after a single resize.
+        if (Math.abs(node.width / rect.width - node.height / rect.height) > 0.01) node.autoSize = false;
+        fitFreeText(node);
+      }
+      commit();
       break;
     case "draw": {
       d.preview.remove();
@@ -1438,8 +1709,9 @@ function endDrag(e: PointerEvent): void {
         width: Math.max(20, r.width),
         height: Math.max(20, r.height),
       };
-      setNodeLook(node, { ...shapeDefaults, shape: d.shape });
-      setTool(null);
+      setNodeLook(node, { shape: d.shape });
+      applyNodeDefaults(node);
+      setTool(SELECT);
       addNode(node);
       break;
     }
@@ -1476,7 +1748,7 @@ viewport.addEventListener("pointerup", endDrag);
 viewport.addEventListener("pointercancel", endDrag);
 
 viewport.addEventListener("dblclick", (e) => {
-  if (tool) return;
+  if (tool.kind !== "select") return;
   // Pointer capture makes the event's own target the viewport: look at what is under the pointer.
   const target = (document.elementFromPoint(e.clientX, e.clientY) ?? e.target) as HTMLElement;
   if (target.closest(".editor, .inline-input, .link-open")) return;
@@ -1520,61 +1792,178 @@ viewport.addEventListener(
 // ---------------------------------------------------------------- keyboard
 
 document.addEventListener("keydown", (e) => {
-  if (!loaded || (e.target as HTMLElement).closest?.("input, textarea")) return;
-  const mod = e.ctrlKey || e.metaKey;
+  if (!loaded || (e.target as HTMLElement).closest?.("input, textarea, [contenteditable]")) return;
+  const is = (id: string) => matchesShortcut(id, e);
   const key = e.key.toLowerCase();
   if (key === " " && !spaceHeld) {
     spaceHeld = true;
     viewport.classList.add("can-pan");
     e.preventDefault();
-  } else if (key === "delete" || key === "backspace") {
+  } else if (is("delete")) {
     e.preventDefault();
     deleteSelection();
-  } else if (mod && key === "a") {
+  } else if (is("selectAll")) {
     e.preventDefault();
-    data.nodes.forEach((n) => selection.add(n.id));
-    showSelection();
-  } else if (mod && key === "d") {
+    selectAll();
+  } else if (is("duplicate")) {
     e.preventDefault();
-    const fragment = copySelection() && clipboard;
-    if (fragment) {
-      const b = boundsOf(fragment.nodes)!;
-      paste(fragment, { x: b.x + b.width / 2 + GRID * 2, y: b.y + b.height / 2 + GRID * 2 });
-    }
-  } else if (key === "escape") {
-    if (tool || !shapeMenu.hidden) return setTool(null);
-    selection.clear();
-    showSelection();
-  } else if (!mod && !e.altKey && !e.shiftKey && (key === "t" || key === "r" || key === "o")) {
-    setTool(key === "t" ? { kind: "text" } : { kind: "shape", shape: key === "r" ? "rectangle" : "ellipse" });
-  } else if (key === "enter" && selection.size === 1) {
+    duplicateSelection();
+  } else if (is("forward") || is("backward") || is("toFront") || is("toBack")) {
+    e.preventDefault();
+    reorderSelection(is("forward") ? "forward" : is("backward") ? "backward" : is("toFront") ? "front" : "back");
+  } else if (is("lock")) {
+    e.preventDefault();
+    toggleLock();
+  } else if (is("escape")) {
+    escape();
+  } else if (is("help")) {
+    toggleShortcutPanel();
+  } else if (is("select")) {
+    setTool(SELECT);
+  } else if (is("hand")) {
+    setTool({ kind: "hand" });
+  } else if (is("text")) {
+    setTool({ kind: "text" });
+  } else if (is("rectangle") || is("ellipse")) {
+    setTool({ kind: "shape", shape: is("rectangle") ? "rectangle" : "ellipse" });
+  } else if (is("card")) {
+    // Keep the letter out of the text field that opens.
+    e.preventDefault();
+    addNode(textNodeAt(viewportCenter()), true);
+  } else if (is("group")) {
+    e.preventDefault();
+    addGroup();
+  } else if (is("edit") && selection.size === 1) {
     e.preventDefault();
     startEditing([...selection][0]!);
-  } else if (e.shiftKey && (key === "1" || key === "!")) {
+  } else if (is("fit")) {
     fitToContent();
-  } else if (e.shiftKey && (key === "2" || key === "@") && selection.size) {
+  } else if (is("fitSelection") && selection.size) {
     fitToContent(selectedNodes());
-  } else if (mod && (key === "=" || key === "+")) {
+  } else if (is("zoomIn")) {
     e.preventDefault();
     zoomBy(1.2);
-  } else if (mod && key === "-") {
+  } else if (is("zoomOut")) {
     e.preventDefault();
     zoomBy(1 / 1.2);
-  } else if (mod && key === "0") {
+  } else if (is("zoomReset")) {
     e.preventDefault();
     zoomBy(1 / view.zoom);
   } else if (key.startsWith("arrow") && selection.size) {
     e.preventDefault();
-    const step = e.shiftKey ? GRID * 5 : GRID;
-    const dx = key === "arrowleft" ? -step : key === "arrowright" ? step : 0;
-    const dy = key === "arrowup" ? -step : key === "arrowdown" ? step : 0;
-    for (const n of selectedNodes()) {
-      n.x += dx;
-      n.y += dy;
-    }
-    commit();
+    nudge(key, e.shiftKey ? GRID * 5 : GRID);
+  } else if (e.ctrlKey || e.metaKey) {
+    // Save, undo and redo are VS Code's: write a waiting nudge first, so they see it.
+    if (key === "s" || key === "z" || key === "y") nudges.flush();
   }
 });
+
+// ---------------------------------------------------------------- context menu
+
+// A right-click selects what is under the pointer, unless it is selected already, and opens the menu for the selection.
+// VS Code's own webview menu stays away, except in text fields.
+document.addEventListener("contextmenu", (e) => {
+  const target = e.target as HTMLElement;
+  if (target.closest?.("input, textarea")) return;
+  e.preventDefault();
+  if (!loaded || !viewport.contains(target)) return;
+  const p = toWorld(e.clientX, e.clientY);
+  const nodeEl = target.closest<HTMLElement>(".node");
+  const node = nodeEl && nodeById(nodeEl.dataset.id!);
+  const onGroupBody = node?.type === "group" && !target.closest(".group-label") && insideGroupBody(node, p);
+  const edgeEl = target.closest<HTMLElement | SVGElement>(".edge, .edge-label");
+  const id = node && !onGroupBody ? node.id : (edgeEl as HTMLElement | null)?.dataset.id;
+  if (!id) {
+    selection.clear();
+  } else if (!selection.has(id)) {
+    selection.clear();
+    selection.add(id);
+  }
+  showSelection();
+  const selected = [...selection].map((id) => nodeById(id) ?? edgeById(id)).filter((i): i is CanvasNode | CanvasEdge => !!i);
+  openContextMenu(menuItems(selected, !!clipboard), e.clientX, e.clientY, (action) => runMenuAction(action, p));
+});
+
+function runMenuAction(action: string, at: Point): void {
+  switch (action) {
+    case "cut":
+    case "copy": {
+      const text = copySelection();
+      if (text) void navigator.clipboard?.writeText(text).catch(() => undefined);
+      if (action === "cut") deleteSelection();
+      return;
+    }
+    case "paste":
+      if (clipboard) paste(clipboard, at);
+      return;
+    case "duplicate":
+      return duplicateSelection();
+    case "delete":
+      return deleteSelection();
+    case "toFront":
+      return reorderSelection("front");
+    case "forward":
+      return reorderSelection("forward");
+    case "backward":
+      return reorderSelection("backward");
+    case "toBack":
+      return reorderSelection("back");
+    case "group":
+      return addGroup();
+    case "lock":
+      return toggleLock();
+    case "fitSelection":
+      return fitToContent(selectedNodes());
+    case "selectAll":
+      return selectAll();
+    case "fit":
+      return fitToContent();
+  }
+}
+
+function selectAll(): void {
+  data.nodes.forEach((n) => isLocked(n) || selection.add(n.id));
+  showSelection();
+}
+
+/** Moves the selection by an arrow key. Shown at once, written to the document when the nudges stop. */
+function nudge(key: string, step: number): void {
+  const dx = key === "arrowleft" ? -step : key === "arrowright" ? step : 0;
+  const dy = key === "arrowup" ? -step : key === "arrowdown" ? step : 0;
+  const moved = selectedNodes().filter((n) => !isLocked(n));
+  if (!moved.length) return;
+  for (const n of moved) {
+    n.x += dx;
+    n.y += dy;
+    const el = nodeElement(n.id);
+    if (el) placeNode(el, n);
+  }
+  redrawEdgesOf(new Set(moved.map((n) => n.id)));
+  updateSelectionBox();
+  nudged = snapshot();
+  nudges.schedule();
+}
+
+/** Escape closes an open menu first, then goes back to the select tool, then clears the selection. */
+function escape(): void {
+  if (isContextMenuOpen()) return closeContextMenu();
+  if (isShortcutPanelOpen()) return toggleShortcutPanel(false);
+  if (!headMenu.hidden) return closeHeadMenu();
+  if (!shapeMenu.hidden) {
+    shapeMenu.hidden = true;
+    return;
+  }
+  if (tool.kind !== "select") return setTool(SELECT);
+  selection.clear();
+  showSelection();
+}
+
+function duplicateSelection(): void {
+  const fragment = copySelection() && clipboard;
+  if (!fragment) return;
+  const b = boundsOf(fragment.nodes)!;
+  paste(fragment, { x: b.x + b.width / 2 + GRID * 2, y: b.y + b.height / 2 + GRID * 2 });
+}
 
 document.addEventListener("keyup", (e) => {
   if (e.key === " ") {
@@ -1734,6 +2123,8 @@ app.addEventListener("click", (e) => {
     return setSelectedNodeLook({ [button.dataset.look]: button.dataset.value });
   }
   if (button.dataset.menu) return toggleHeadMenu(button);
+  if (button.dataset.align) return alignSelection(button.dataset.align as AlignEdge);
+  if (button.dataset.distribute) return distributeSelection(button.dataset.distribute as "horizontal" | "vertical");
   if (isDrawingStyle(button.dataset.drawing)) return setSelectedDrawingStyle(button.dataset.drawing);
   if (button.dataset.style) {
     if (button.parentElement === headMenu) closeHeadMenu();
@@ -1743,9 +2134,13 @@ app.addEventListener("click", (e) => {
     case "text":
       return addNode(textNodeAt(viewportCenter()), true);
     case "text-tool":
-      return setTool(tool?.kind === "text" ? null : { kind: "text" });
+      return setTool(tool.kind === "text" ? SELECT : { kind: "text" });
+    case "select":
+      return setTool(SELECT);
+    case "hand":
+      return setTool(tool.kind === "hand" ? SELECT : { kind: "hand" });
     case "shapes":
-      if (tool?.kind === "shape") return setTool(null);
+      if (tool.kind === "shape") return setTool(SELECT);
       shapeMenu.hidden = !shapeMenu.hidden;
       return;
     case "file":
@@ -1758,6 +2153,8 @@ app.addEventListener("click", (e) => {
       return addGroup();
     case "delete":
       return deleteSelection();
+    case "lock":
+      return toggleLock();
     case "zoom-in":
       return zoomBy(1.2);
     case "zoom-out":
@@ -1769,22 +2166,23 @@ app.addEventListener("click", (e) => {
     case "canvas-style":
       return cycleCanvasStyle();
     case "undo":
+      nudges.flush();
       return post({ type: "undo" });
     case "redo":
+      nudges.flush();
       return post({ type: "redo" });
+    case "help":
+      return toggleShortcutPanel();
     case "source":
       return post({ type: "showSource" });
   }
 });
 
-// The arrowhead menu closes on a click elsewhere or Escape.
+// The arrowhead and shape menus close on a click elsewhere, or on Escape (see `escape`).
 document.addEventListener("pointerdown", (e) => {
   const t = e.target as HTMLElement;
   if (!headMenu.hidden && !t.closest("#head-menu, .picker")) closeHeadMenu();
   if (!shapeMenu.hidden && !t.closest('#shape-menu, [data-action="shapes"]')) shapeMenu.hidden = true;
-});
-document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && !headMenu.hidden) closeHeadMenu();
 });
 
 props.querySelector<HTMLInputElement>("input[type=color]")!.addEventListener("change", (e) => {
@@ -1799,6 +2197,8 @@ window.addEventListener("message", (e: MessageEvent<HostMessage>) => {
   const msg = e.data;
   switch (msg.type) {
     case "load": {
+      // A change from outside (undo from the menu, another editor) wins over a nudge not yet written.
+      nudges.cancel();
       try {
         data = parseCanvas(msg.text);
       } catch (err) {
@@ -1832,6 +2232,8 @@ window.addEventListener("message", (e: MessageEvent<HostMessage>) => {
       break;
     case "settings":
       settingsStyle = resolveDrawingStyle(msg.drawingStyle);
+      themeSetting = msg.theme;
+      applyPaper();
       if (loaded) render();
       else updateCanvasStyleButton();
       break;
@@ -1839,5 +2241,7 @@ window.addEventListener("message", (e: MessageEvent<HostMessage>) => {
 });
 
 applyView();
+applyPaper();
 updateCanvasStyleButton();
+showTool(toolbar, viewport, tool);
 post({ type: "ready" });
