@@ -15,14 +15,22 @@ export class CanvasEditorProvider implements vscode.CustomTextEditorProvider {
   /** How to send a message to the webview of each open canvas, by its URI. */
   private static readonly webviews = new Map<string, (msg: HostMessage) => void>();
 
-  /** Asks the active canvas for an export. */
-  static exportActive(format: ExportFormat): void {
-    const post = CanvasEditorProvider.activeUri && CanvasEditorProvider.webviews.get(CanvasEditorProvider.activeUri.toString());
+  /**
+   * Asks for the export options, then the active canvas for its picture. The paper starts on `paper`,
+   * the one the canvas shows; background and scale start on the ones picked last.
+   */
+  async exportActive(format: ExportFormat, paper: Paper = shownPaper()): Promise<void> {
+    const uri = CanvasEditorProvider.activeUri;
+    const post = uri && CanvasEditorProvider.webviews.get(uri.toString());
     if (!post) {
       void vscode.window.showInformationMessage("Open a canvas first.");
       return;
     }
-    post({ type: "export", format, background: true, paper: "light", scale: 1 });
+    const saved = this.context.globalState.get<Partial<ExportChoices>>(EXPORT_STATE) ?? {};
+    const choices = await pickExportOptions(format, { background: saved.background ?? true, paper, scale: saved.scale ?? 2 });
+    if (!choices) return;
+    await this.context.globalState.update(EXPORT_STATE, { background: choices.background, scale: choices.scale });
+    post({ type: "export", format, ...choices });
   }
 
   constructor(private readonly context: vscode.ExtensionContext) {}
@@ -124,6 +132,9 @@ export class CanvasEditorProvider implements vscode.CustomTextEditorProvider {
             break;
           case "inline":
             post({ type: "inlined", data: await this.inline(root, msg.paths) });
+            break;
+          case "exportRequest":
+            await vscode.commands.executeCommand(msg.format === "png" ? "canvas.exportPng" : "canvas.exportSvg", { paper: msg.paper });
             break;
           case "exported":
             await this.saveExport(document.uri, msg.format, msg.base64);
@@ -386,6 +397,57 @@ export class CanvasEditorProvider implements vscode.CustomTextEditorProvider {
 </body>
 </html>`;
   }
+}
+
+type Paper = "light" | "dark";
+type ExportChoices = { background: boolean; paper: Paper; scale: 1 | 2 | 3 };
+const EXPORT_STATE = "canvas.export";
+
+/** The paper canvases show now, by the `canvas.theme` setting and the color theme. */
+function shownPaper(): Paper {
+  const setting = vscode.workspace.getConfiguration("canvas").get<string>("theme", "auto");
+  if (setting === "light" || setting === "dark") return setting;
+  const kind = vscode.window.activeColorTheme.kind;
+  return kind === vscode.ColorThemeKind.Dark || kind === vscode.ColorThemeKind.HighContrast ? "dark" : "light";
+}
+
+/**
+ * One quick pick for the export options: picking a line switches it, picking *Export* saves.
+ * Scale is only for PNG.
+ */
+function pickExportOptions(format: ExportFormat, start: ExportChoices): Promise<ExportChoices | undefined> {
+  const choices = { ...start };
+  type Item = vscode.QuickPickItem & { key: "save" | "background" | "paper" | "scale" };
+  const pick = vscode.window.createQuickPick<Item>();
+  pick.title = `Export as ${format.toUpperCase()}`;
+  pick.placeholder = "Pick a line to change it, then Export";
+  const items = (): Item[] => [
+    { key: "save", label: "$(save) Export…", description: "choose where to save it" },
+    { key: "background", label: `Background: ${choices.background ? "on" : "off"}`, description: choices.background ? "the paper's color" : "transparent" },
+    { key: "paper", label: `Paper: ${choices.paper}`, description: choices.paper === "light" ? "dark ink on white" : "light ink on dark" },
+    ...(format === "png" ? [{ key: "scale" as const, label: `Scale: ${choices.scale}×`, description: "1×, 2× or 3× the size on the canvas" }] : []),
+  ];
+  pick.items = items();
+  return new Promise((resolve) => {
+    pick.onDidAccept(() => {
+      const key = pick.selectedItems[0]?.key ?? "save";
+      if (key === "save") {
+        resolve(choices);
+        pick.hide();
+        return;
+      }
+      if (key === "background") choices.background = !choices.background;
+      if (key === "paper") choices.paper = choices.paper === "light" ? "dark" : "light";
+      if (key === "scale") choices.scale = choices.scale === 3 ? 1 : ((choices.scale + 1) as 2 | 3);
+      pick.items = items();
+      pick.activeItems = pick.items.filter((i) => i.key === key);
+    });
+    pick.onDidHide(() => {
+      resolve(undefined);
+      pick.dispose();
+    });
+    pick.show();
+  });
 }
 
 /** The path of a file relative to the canvas root, with forward slashes, or undefined when it lies outside. */

@@ -74,6 +74,11 @@
         "icon": "$(open-preview)"
       },
       {
+        "command": "canvas.exportPng",
+        "title": "Export as PNG",
+        "category": "Canvas"
+      },
+      {
         "command": "canvas.exportSvg",
         "title": "Export as SVG",
         "category": "Canvas"
@@ -142,6 +147,10 @@
         {
           "command": "canvas.showCanvas",
           "when": "resourceExtname == .canvas && !activeCustomEditorId"
+        },
+        {
+          "command": "canvas.exportPng",
+          "when": "activeCustomEditorId == canvas.editor"
         },
         {
           "command": "canvas.exportSvg",

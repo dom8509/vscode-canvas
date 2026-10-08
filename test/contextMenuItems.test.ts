@@ -15,7 +15,7 @@ const actions = (entries: MenuEntry[]) => entries.filter((e) => e !== "-").map((
 
 describe("menuItems", () => {
   it("offers paste, select all and zoom to fit on the empty canvas", () => {
-    expect(actions(menuItems([], true))).toEqual(["paste", "selectAll", "fit"]);
+    expect(actions(menuItems([], true))).toEqual(["paste", "selectAll", "fit", "exportPng", "exportSvg"]);
   });
 
   it("disables paste when the clipboard is empty", () => {
@@ -30,8 +30,9 @@ describe("menuItems", () => {
       "cut", "copy", "paste", "duplicate", "delete",
       "toFront", "forward", "backward", "toBack",
       "group", "lock", "fitSelection",
+      "exportPng", "exportSvg",
     ]);
-    for (const e of entries) if (e !== "-") expect(e.keys, e.action).not.toBe("");
+    for (const e of entries) if (e !== "-" && !e.action.startsWith("export")) expect(e.keys, e.action).not.toBe("");
   });
 
   it("groups a selection only of two cards or more", () => {
@@ -65,5 +66,12 @@ describe("menuItems", () => {
     const entries = menuItems([edge("e")], true, true);
     for (const action of ["cut", "copy", "duplicate"]) expect(item(entries, action).enabled, action).toBe(true);
     expect(item(menuItems([edge("e", { locked: true })], true, true), "cut").enabled).toBe(false);
+  });
+
+  it("always offers both exports, for the selection and for the empty canvas", () => {
+    for (const entries of [menuItems([], false), menuItems([card("a", { locked: true })], false), menuItems([edge("e")], false)]) {
+      expect(item(entries, "exportPng")).toMatchObject({ label: "Export as PNG", enabled: true });
+      expect(item(entries, "exportSvg")).toMatchObject({ label: "Export as SVG", enabled: true });
+    }
   });
 });

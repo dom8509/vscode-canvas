@@ -6,8 +6,7 @@
 
 import { type CanvasData, type CanvasEdge, type CanvasNode, isPoint } from "../src/jsonCanvas";
 import { type Rect, containsRect } from "./geometry";
-
-export type Paper = "light" | "dark";
+import type { Paper } from "./theme";
 
 /** The declarations of `#viewport[data-paper="…"]` in the board's stylesheet: the colors of one paper. */
 export function paperVariables(css: string, paper: Paper): string {
@@ -121,4 +120,15 @@ export function buildSvg(
 /** CSS made safe inside an XML <style> element. */
 function escapeStyle(css: string): string {
   return css.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/** The SVG drawn on a canvas at `scale` times its size, as PNG bytes. Every resource in it is a data URI, so the canvas stays readable. */
+export async function svgToPng(svg: string, width: number, height: number, scale: number): Promise<Uint8Array> {
+  const img = new Image();
+  img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  await img.decode();
+  const canvas = new OffscreenCanvas(Math.round(width * scale), Math.round(height * scale));
+  canvas.getContext("2d")!.drawImage(img, 0, 0, canvas.width, canvas.height);
+  const blob = await canvas.convertToBlob({ type: "image/png" });
+  return new Uint8Array(await blob.arrayBuffer());
 }

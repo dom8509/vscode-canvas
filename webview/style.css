@@ -744,6 +744,12 @@ button {
   background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
 }
 
+#zoombar .export-button {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
 #zoom-level {
   font-size: 11px;
 }

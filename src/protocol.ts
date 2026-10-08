@@ -50,6 +50,8 @@ export type WebviewMessage =
    * to the workspace root, or starts with "extension:" for a file of the extension, such as its fonts.
    */
   | { type: "inline"; paths: string[] }
+  /** A press on an export button or menu item: the host asks for the options, then sends `export`. `paper` is the one shown. */
+  | { type: "exportRequest"; format: ExportFormat; paper: "light" | "dark" }
   /** The exported picture, as base64, for the host to save. */
   | { type: "exported"; format: ExportFormat; base64: string }
   | { type: "undo" }

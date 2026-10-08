@@ -103,7 +103,7 @@ import { menuItems } from "./contextMenuItems";
 import { resolveTheme } from "./theme";
 import { type NodeDefaults, pickNodeDefaults } from "./nodeDefaults";
 import { coalescer } from "./coalesce";
-import { buildSvg, exportItems, inlineUrls } from "./export";
+import { buildSvg, exportItems, inlineUrls, svgToPng } from "./export";
 import boardCss from "./style.css";
 
 declare function acquireVsCodeApi(): {
@@ -171,7 +171,7 @@ app.innerHTML = `
       <svg id="guides"></svg>
     </div>
     <div id="marquee" hidden></div>
-    <div id="empty-hint" hidden>Double-click to write · T text · R O shapes · drop files here · ? shortcuts</div>
+    <div id="empty-hint" hidden>Double-click to write · T text · R O shapes · A arrow · P pen · drop files here · ? shortcuts</div>
   </div>
   <div id="error" hidden>
     <p></p>
@@ -236,6 +236,8 @@ app.innerHTML = `
     <button data-action="zoom-out" title="${tooltip("zoomOut")}">${icon("minus")}</button>
     <button data-action="fit" title="${tooltip("fit")}">${icon("fit")}</button>
     <button data-action="canvas-style" id="canvas-style"></button>
+    <button data-action="export-png" class="export-button" title="Export as PNG">PNG</button>
+    <button data-action="export-svg" class="export-button" title="Export as SVG">SVG</button>
     <button data-action="undo" title="${tooltip("undo")}">${icon("undo")}</button>
     <button data-action="redo" title="${tooltip("redo")}">${icon("redo")}</button>
     <button data-action="help" title="${tooltip("help")}">${icon("help")}</button>
@@ -2405,6 +2407,10 @@ function runMenuAction(action: string, at: Point): void {
       return selectAll();
     case "fit":
       return fitToContent();
+    case "exportPng":
+      return requestExport("png");
+    case "exportSvg":
+      return requestExport("svg");
   }
 }
 
@@ -2669,6 +2675,10 @@ app.addEventListener("click", (e) => {
       return fitToContent();
     case "canvas-style":
       return cycleCanvasStyle();
+    case "export-png":
+      return requestExport("png");
+    case "export-svg":
+      return requestExport("svg");
     case "undo":
       nudges.flush();
       return post({ type: "undo" });
@@ -2752,7 +2762,13 @@ async function exportCanvas(options: Extract<HostMessage, { type: "export" }>): 
   const rootStyle = document.documentElement.style;
   const themeVars = [...rootStyle].filter((p) => p.startsWith("--")).map((p) => `${p}: ${rootStyle.getPropertyValue(p)};`).join(" ");
   const svg = buildSvg(world, items, bounds, options, css, inlined, themeVars);
-  post({ type: "exported", format: "svg", base64: toBase64(new TextEncoder().encode(svg)) });
+  const bytes = options.format === "png" ? await svgToPng(svg, bounds.width, bounds.height, options.scale) : new TextEncoder().encode(svg);
+  post({ type: "exported", format: options.format, base64: toBase64(bytes) });
+}
+
+/** An export button or menu item: the host asks for the options, starting on the paper shown. */
+function requestExport(format: "png" | "svg"): void {
+  post({ type: "exportRequest", format, paper: viewport.dataset.paper === "dark" ? "dark" : "light" });
 }
 
 // ---------------------------------------------------------------- messages from the host

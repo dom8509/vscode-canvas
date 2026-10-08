@@ -153,9 +153,9 @@ open format Obsidian uses, so the files work in both.
   bends come along, unless it is locked. Drag a selected connection by its
   line to move the whole selection.
 - **Context menu:** right-click a card, group or connection for cut, copy,
-  paste, duplicate, delete, the layer order, group selection, lock and zoom
-  to selection; right-click the empty canvas for paste, select all and zoom
-  to fit. Items that do not apply are greyed out; each shows its key.
+  paste, duplicate, delete, the layer order, group selection, lock, zoom
+  to selection and export; right-click the empty canvas for paste, select
+  all, zoom to fit and export. Items that do not apply are greyed out; each shows its key.
 - **Layer order:** **Ctrl/Cmd+]** brings the selected cards one step forward,
   **Ctrl/Cmd+[** sends them one step back; add **Shift** to bring them to the
   front or send them to the back. Groups always stay behind the cards. The
@@ -177,13 +177,18 @@ open format Obsidian uses, so the files work in both.
   connections with free ends come along, and so does a copied card's
   connection to a free end.
   Undo and redo are VS Code's own (Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z).
-- **Export:** run *Canvas: Export as SVG* from the Command Palette. The
-  picture holds the selection, or the whole canvas when nothing is selected,
-  with a margin around it, and looks like the canvas: the same fonts, sketchy
-  lines, images, notes, shapes, text and strokes. Handles, selection outlines
-  and the grid stay out. The file needs nothing outside itself (the
-  handwriting font and the images are inside it). VS Code's save dialog
-  starts next to the canvas, with its name.
+- **Export:** the *PNG* and *SVG* buttons at the top right, *Export as PNG*
+  and *Export as SVG* in the context menu, or *Canvas: Export as PNG* and
+  *Canvas: Export as SVG* in the Command Palette. The picture holds the
+  selection, or the whole canvas when nothing is selected, with a margin
+  around it, and looks like the canvas: the same fonts, sketchy lines,
+  images, notes, shapes, text and strokes. Handles, selection outlines and
+  the grid stay out. First a quick pick sets the background (on, or
+  transparent), the paper (light or dark; it starts on the one you see) and,
+  for PNG, the scale (1×, 2× or 3×): pick a line to change it, then
+  *Export*. Background and scale are remembered. The file needs nothing
+  outside itself (the handwriting font and the images are inside it). VS
+  Code's save dialog starts next to the canvas, with its name.
 - **Source:** the *Show Source* button in the editor title opens the file as
   JSON text; *Open Canvas* goes back.
 
