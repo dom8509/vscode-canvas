@@ -84,6 +84,7 @@ import { isShortcutPanelOpen, shortcutPanelHtml, toggleShortcutPanel } from "./s
 import { closeContextMenu, isContextMenuOpen, openContextMenu } from "./contextMenu";
 import { menuItems } from "./contextMenuItems";
 import { resolveTheme } from "./theme";
+import { type NodeDefaults, pickNodeDefaults } from "./nodeDefaults";
 
 declare function acquireVsCodeApi(): {
   postMessage(msg: WebviewMessage): void;
@@ -123,10 +124,17 @@ let settingsStyle: DrawingStyleName = DEFAULT_DRAWING_STYLE;
 /** The `canvas.theme` setting: auto, light or dark. */
 let themeSetting = "auto";
 
-const saved = vscode.getState() as { view?: View; edgeDefaults?: Partial<EdgeStyle> } | undefined;
+const saved = vscode.getState() as { view?: View; edgeDefaults?: Partial<EdgeStyle>; nodeDefaults?: NodeDefaults } | undefined;
 if (saved?.view) view = saved.view;
 /** The look last picked in the style bar. New edges get it, as in Excalidraw. */
 let edgeDefaults: Partial<EdgeStyle> = saved?.edgeDefaults ?? {};
+/** The color and look last picked for cards. New cards, shapes and free text get what fits them. */
+let nodeDefaults: NodeDefaults = saved?.nodeDefaults ?? {};
+
+/** Keeps the view and the sticky styles over a reload of the webview. */
+function saveState(): void {
+  vscode.setState({ view, edgeDefaults, nodeDefaults });
+}
 
 // ---------------------------------------------------------------- DOM
 
@@ -350,7 +358,7 @@ function applyView(): void {
   viewport.style.backgroundSize = `${GRID * view.zoom}px ${GRID * view.zoom}px`;
   viewport.classList.toggle("far", view.zoom < 0.5);
   zoomLevel.textContent = `${Math.round(view.zoom * 100)}%`;
-  vscode.setState({ view, edgeDefaults });
+  saveState();
 }
 
 /** Light or dark paper, by the setting and the VS Code theme. The file does not change. */
@@ -824,12 +832,19 @@ function closeHeadMenu(): void {
   props.querySelectorAll(".picker.open").forEach((p) => p.classList.remove("open"));
 }
 
-/** The fill picked last. New shapes get it, as edges get their last style. */
-let shapeDefaults: Partial<NodeLook> = {};
+/** Gives a new card the color and look picked last, as far as they fit it. */
+function applyNodeDefaults(node: CanvasNode): CanvasNode {
+  const { color, ...look } = pickNodeDefaults(nodeDefaults, nodeLook(node).shape);
+  if (color) node.color = color;
+  setNodeLook(node, look);
+  return node;
+}
 
 /** Sets part of the look of the selected shapes and free text. */
 function setSelectedNodeLook(look: Partial<NodeLook>): void {
-  if (look.fill) shapeDefaults = { ...shapeDefaults, fill: look.fill };
+  const { shape: _shape, ...sticky } = look;
+  nodeDefaults = { ...nodeDefaults, ...sticky };
+  saveState();
   for (const id of selection) {
     const node = nodeById(id);
     if (node?.type !== "text" && node?.type !== "file") continue;
@@ -873,6 +888,7 @@ function updateCanvasStyleButton(): void {
 /** Sets part of the look of the selected edges, and of new ones. */
 function setSelectedEdgeStyle(style: Partial<EdgeStyle>): void {
   edgeDefaults = { ...edgeDefaults, ...style };
+  saveState();
   for (const id of selection) {
     const edge = edgeById(id);
     if (edge && !isLocked(edge)) setEdgeStyle(edge, style);
@@ -891,14 +907,14 @@ function addNode(node: CanvasNode, edit = false): void {
 }
 
 function textNodeAt(p: Point, text = ""): CanvasNode {
-  return { id: newId(), type: "text", text, x: snap(p.x - 125, GRID), y: snap(p.y - 30, GRID), width: 260, height: 80 };
+  return applyNodeDefaults({ id: newId(), type: "text", text, x: snap(p.x - 125, GRID), y: snap(p.y - 30, GRID), width: 260, height: 80 });
 }
 
 /** Empty free text whose first line starts at `p`, as in Excalidraw. Left empty, it disappears again. */
 function freeTextAt(p: Point): CanvasNode {
   const node: CanvasNode = { id: newId(), type: "text", text: "", x: p.x - 6, y: p.y - 14, width: 40, height: 28 };
   setNodeLook(node, { shape: "text" });
-  return node;
+  return applyNodeDefaults(node);
 }
 
 function fileNodeAt(p: Point, file: string): CanvasNode {
@@ -1011,6 +1027,10 @@ function reorderSelection(op: LayerOp): void {
 
 function setColor(color: string): void {
   if (selection.size === 0) return;
+  if (selectedNodes().length) {
+    nodeDefaults = { ...nodeDefaults, color: color || undefined };
+    saveState();
+  }
   for (const id of selection) {
     const item = nodeById(id) ?? edgeById(id);
     if (!item || isLocked(item)) continue;
@@ -1678,7 +1698,8 @@ function endDrag(e: PointerEvent): void {
         width: Math.max(20, r.width),
         height: Math.max(20, r.height),
       };
-      setNodeLook(node, { ...shapeDefaults, shape: d.shape });
+      setNodeLook(node, { shape: d.shape });
+      applyNodeDefaults(node);
       setTool(SELECT);
       addNode(node);
       break;

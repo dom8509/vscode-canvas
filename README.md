@@ -87,7 +87,9 @@ open format Obsidian uses, so the files work in both.
   drawing changes, and each element looks the same on every redraw.
 - **Properties:** select cards or connections and a panel on the left shows
   their properties, as in Excalidraw and tldraw: one of six colors or a custom one, and
-  for connections the line and arrow styles below.
+  for connections the line and arrow styles below. New cards, shapes and
+  free text take the color, fill, font, text size and border you picked
+  last, as far as they fit (free text has no fill or border).
 - **Align and distribute:** with two or more cards selected, the *Align* row
   in the properties panel lines up their left sides, centers, right sides,
   tops, middles or bottoms. With three or more, two more buttons space them
