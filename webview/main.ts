@@ -188,7 +188,7 @@ app.innerHTML = `
       ${segmentedLook("fill", FILLS)}
     </section>
     <section class="border-tools">
-      <h3>Border</h3>
+      <h3 class="border-title">Border</h3>
       ${segmentedLook("strokeWidth", LINE_WIDTHS)}
     </section>
     <section class="text-tools">
@@ -868,9 +868,11 @@ function updateColorbar(): void {
   });
   // Text, border and shape properties, for the text and file cards they apply to. Pictures have no text to set.
   const styled = [...selection].map(nodeById).filter((n): n is CanvasNode => n?.type === "text" || n?.type === "file");
-  const looks = styled.filter((n) => !(n.type === "file" && isImagePath(n.file))).map(nodeLook);
-  const shapes = looks.filter((l) => l.shape !== "card" && l.shape !== "text" && l.shape !== "draw");
+  // Pictures and strokes have no text; a stroke's border is its width.
+  const looks = styled.filter((n) => !(n.type === "file" && isImagePath(n.file)) && !isStroke(n)).map(nodeLook);
+  const shapes = looks.filter((l) => l.shape !== "card" && l.shape !== "text");
   const bordered = styled.map(nodeLook).filter((l) => l.shape !== "text");
+  props.querySelector(".border-title")!.textContent = bordered.length && bordered.every((l) => l.shape === "draw") ? "Width" : "Border";
   props.classList.toggle("has-shapes", shapes.length > 0);
   props.classList.toggle("has-text", looks.length > 0);
   props.classList.toggle("has-border", bordered.length > 0);
@@ -947,7 +949,8 @@ function setSelectedNodeLook(look: Partial<NodeLook>): void {
     if (isLocked(node)) continue;
     const kind = nodeLook(node).shape;
     // Text settings fit every text card and note; a border not free text; shape and fill only shapes.
-    const part: Partial<NodeLook> = node.type === "file" && isImagePath(node.file) ? {} : { fontSize: look.fontSize, fontFamily: look.fontFamily };
+    const textless = (node.type === "file" && isImagePath(node.file)) || isStroke(node);
+    const part: Partial<NodeLook> = textless ? {} : { fontSize: look.fontSize, fontFamily: look.fontFamily };
     if (kind !== "text") part.strokeWidth = look.strokeWidth;
     if (kind !== "text" && kind !== "card" && kind !== "draw") Object.assign(part, { shape: look.shape, fill: look.fill });
     const given = Object.fromEntries(Object.entries(part).filter(([, v]) => v !== undefined));
@@ -2061,6 +2064,7 @@ function endDrag(e: PointerEvent): void {
       const { box, points } = strokeBox(simplify(d.points, 0.5 / view.zoom));
       const node: CanvasNode = { id: newId(), type: "text", text: "", shape: "draw", ...box };
       setStrokePoints(node, points);
+      applyNodeDefaults(node);
       // The pen stays: each stroke is its own card and its own undo step.
       data.nodes.push(node);
       commit();

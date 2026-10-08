@@ -87,6 +87,9 @@ open format Obsidian uses, so the files work in both.
   element and its own undo step; the pen stays on until **Escape**. Click a
   stroke's line to select it (a click inside a loop reaches what lies under
   it); then move, resize, turn, group, lock, copy or delete it like a card.
+  The properties panel sets a stroke's color, width (thin, normal, bold,
+  extra bold) and drawing style; the next stroke takes the color and width
+  you picked last.
   A stroke is saved as an empty card the size of the stroke with its points
   in it, so Obsidian shows an empty card there.
 - **End handles:** a selected connection shows a round handle at each end.
