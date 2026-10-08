@@ -1,5 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { cssColor, isImagePath, isLocked, newId, parseCanvas, serializeCanvas, setLocked } from "../src/jsonCanvas";
+import {
+  type CanvasData,
+  cssColor,
+  isImagePath,
+  isLocked,
+  isPoint,
+  newId,
+  nodeLook,
+  parseCanvas,
+  pointNodeAt,
+  prunePoints,
+  serializeCanvas,
+  setLocked,
+  setNodeLook,
+} from "../src/jsonCanvas";
 
 describe("parseCanvas", () => {
   it("reads an empty file as an empty canvas", () => {
@@ -112,5 +126,54 @@ describe("lock", () => {
 
   it("counts only true as locked", () => {
     expect(isLocked({ id: "e", fromNode: "a", toNode: "b", locked: "yes" })).toBe(false);
+  });
+});
+
+describe("points", () => {
+  const card = { id: "c", type: "text" as const, text: "Hi", x: 0, y: 0, width: 100, height: 50 };
+
+  it("makes a 1×1 empty text node centered on the free end", () => {
+    const p = pointNodeAt({ x: 100, y: 40 });
+    expect(p).toMatchObject({ type: "text", text: "", shape: "point", x: 99.5, y: 39.5, width: 1, height: 1 });
+    expect(p.id).toMatch(/^[0-9a-f]{16}$/);
+    expect(isPoint(p)).toBe(true);
+    expect(isPoint(card)).toBe(false);
+  });
+
+  it("removes a point no connection names, and keeps the others", () => {
+    const a = pointNodeAt({ x: 0, y: 0 });
+    const b = pointNodeAt({ x: 9, y: 9 });
+    const orphan = pointNodeAt({ x: 5, y: 5 });
+    const data: CanvasData = {
+      nodes: [card, a, b, orphan],
+      edges: [
+        { id: "e1", fromNode: "c", toNode: a.id },
+        { id: "e2", fromNode: b.id, toNode: "c", locked: true },
+      ],
+    };
+    prunePoints(data);
+    expect(data.nodes.map((n) => n.id)).toEqual(["c", a.id, b.id]);
+  });
+
+  it("keeps a point without a connection when a canvas is read and written", () => {
+    const orphan = pointNodeAt({ x: 5, y: 5 });
+    const text = serializeCanvas({ nodes: [card, orphan], edges: [] });
+    expect(serializeCanvas(parseCanvas(text))).toBe(text);
+  });
+
+  it("keeps a connection to a point through a round trip", () => {
+    const a = pointNodeAt({ x: 300, y: 25 });
+    const text = serializeCanvas({ nodes: [card, a], edges: [{ id: "e", fromNode: "c", fromSide: "right", toNode: a.id }] });
+    const data = parseCanvas(text);
+    expect(data.edges).toHaveLength(1);
+    expect(serializeCanvas(data)).toBe(text);
+  });
+
+  it("is not a card whose look can be set", () => {
+    const p = pointNodeAt({ x: 0, y: 0 });
+    expect(nodeLook(p).shape).toBe("point");
+    const before = { ...p };
+    setNodeLook(p, { shape: "rectangle", fontSize: "l", strokeWidth: "bold" });
+    expect(p).toEqual(before);
   });
 });

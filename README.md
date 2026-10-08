@@ -10,8 +10,8 @@ open format Obsidian uses, so the files work in both.
 
 - **Tools:** the bottom toolbar holds the tools, each with its key in the
   corner of its button: select (**V**), hand (**H**: drag to pan), text
-  (**T**), shapes (**R** rectangle, **O** ellipse), card (**N**) and group
-  (**G**). **Escape** closes an open menu or panel first; otherwise it goes
+  (**T**), shapes (**R** rectangle, **O** ellipse), arrow (**A**), line
+  (**L**), card (**N**) and group (**G**). **Escape** closes an open menu or panel first; otherwise it goes
   back to the select tool, or clears the selection when that is on already. No key fires while you type.
 - **Keys:** press **?**, or the *?* button at the top right, for a list of
   every key. **Escape** or the button closes it. An empty canvas says how to
@@ -64,8 +64,16 @@ open format Obsidian uses, so the files work in both.
   adds an empty one). Moving a group moves the cards inside it. Double-click
   its name to rename it.
 - **Connect:** hover a card, then drag one of the dots on its sides onto
-  another card. Drop on empty space to make a new card there, connected.
+  another card. Drop on empty space and the end stays free there; hold
+  **Alt** while dropping to make a new card there, connected.
   Double-click a connection to give it a label.
+- **Arrows and lines:** pick the arrow tool (**A**) or the line tool (**L**)
+  and drag anywhere, as in Excalidraw. An end dropped on a card joins that
+  card; an end on empty space stays free. Hold **Shift** for 15° steps, and
+  **Alt** to leave the grid. The arrow has a head at its end, the line none;
+  both take the line style you picked last. Then the select tool comes back
+  with the new connection selected. A free end is saved as a tiny empty card,
+  so the file stays JSON Canvas: Obsidian shows that tiny card at the end.
 - **Line and arrow styles:** select connections; the properties panel sets
   solid, dashed or dotted lines, thin, normal or bold width, curved, straight
   or right-angled paths, and the shape at each end (none, arrow, open arrow,

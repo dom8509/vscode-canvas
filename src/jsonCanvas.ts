@@ -293,7 +293,8 @@ export const FONT_FAMILIES: FontFamily[] = ["sans", "serif", "mono", "hand"];
  * Obsidian card. Its font size is undefined until set: it keeps the editor's size.
  */
 export interface NodeLook {
-  shape: ShapeKind | "text" | "card";
+  /** "point" is the hidden node of a free end; it has no look to set. */
+  shape: ShapeKind | "text" | "card" | "point";
   fill: Fill;
   fontSize: FontSize | undefined;
   fontFamily: FontFamily;
@@ -302,7 +303,8 @@ export interface NodeLook {
 }
 
 export function nodeLook(node: CanvasNode): NodeLook {
-  const shape = node.type !== "text" ? "card" : node.shape === "text" ? "text" : oneOf(SHAPES, node.shape, "card" as ShapeKind);
+  const shape =
+    node.type !== "text" ? "card" : node.shape === "text" || node.shape === "point" ? node.shape : oneOf(SHAPES, node.shape, "card" as ShapeKind);
   const size = FONT_SIZES.includes(node.fontSize as FontSize) ? (node.fontSize as FontSize) : undefined;
   return {
     shape: shape as NodeLook["shape"],
@@ -323,7 +325,7 @@ const LOOK_DEFAULTS: Record<keyof NodeLook, string> = {
 
 /** Sets part of the look of a text card or a file card. Defaults are left out of the file. */
 export function setNodeLook(node: CanvasNode, look: Partial<NodeLook>): void {
-  if (node.type !== "text" && node.type !== "file") return;
+  if ((node.type !== "text" && node.type !== "file") || isPoint(node)) return;
   for (const [key, value] of Object.entries(look) as [keyof NodeLook, string | undefined][]) {
     if (!value || value === LOOK_DEFAULTS[key]) delete node[key];
     else node[key] = value;
@@ -374,4 +376,25 @@ export function isLocked(element: CanvasNode | CanvasEdge): boolean {
 export function setLocked(element: CanvasNode | CanvasEdge, on: boolean): void {
   if (on) element.locked = true;
   else delete element.locked;
+}
+
+// ---------------------------------------------------------------- free ends
+// JSON Canvas edges always join two nodes. A free end joins a point: a tiny,
+// empty text node the canvas never shows. Obsidian shows it as a tiny card.
+
+/** The node that holds a free end. */
+export function isPoint(node: CanvasNode): boolean {
+  return node.type === "text" && node.shape === "point";
+}
+
+/** A new point centered on `p`. */
+export function pointNodeAt(p: { x: number; y: number }): TextNode {
+  const round = (v: number) => Math.round(v * 10) / 10;
+  return { id: newId(), type: "text", text: "", shape: "point", x: round(p.x - 0.5), y: round(p.y - 0.5), width: 1, height: 1 };
+}
+
+/** Removes the points no connection names any more. */
+export function prunePoints(data: CanvasData): void {
+  const named = new Set(data.edges.flatMap((e) => [e.fromNode, e.toNode]));
+  data.nodes = data.nodes.filter((n) => !isPoint(n) || named.has(n.id));
 }

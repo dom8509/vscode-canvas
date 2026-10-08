@@ -23,6 +23,9 @@ import {
   rotationOf,
   isImageFile,
   isLocked,
+  isPoint,
+  pointNodeAt,
+  prunePoints,
   setLocked,
   isImagePath,
   isTextPath,
@@ -58,6 +61,7 @@ import {
   resizedCorner,
   rotatePoint,
   sideFacing,
+  snapAngle,
   turnedBounds,
   turnedSide,
   snap,
@@ -341,7 +345,9 @@ function childrenOf(group: CanvasNode): CanvasNode[] {
 
 // ---------------------------------------------------------------- saving
 
+/** The canvas as text. A point left without a connection goes first: deleting a connection deletes its free ends. */
 function snapshot(): string {
+  prunePoints(data);
   return serializeCanvas(data);
 }
 
@@ -412,6 +418,7 @@ function renderNodes(): void {
   nodesLayer.replaceChildren();
   const missing: string[] = [];
   for (const node of data.nodes) {
+    if (isPoint(node)) continue;
     const el = document.createElement("div");
     el.className = `node type-${node.type}`;
     el.dataset.id = node.id;
@@ -639,15 +646,16 @@ function edgeGeometry(edge: CanvasEdge) {
   const from = nodeById(edge.fromNode);
   const to = nodeById(edge.toNode);
   if (!from || !to) return undefined;
-  const fromSide = edge.fromSide ?? facingSide(from, center(to));
-  const toSide = edge.toSide ?? facingSide(to, center(from));
-  return edgePath(
-    nodeAnchor(from, fromSide),
-    turnedSide(fromSide, rotationOf(from)),
-    nodeAnchor(to, toSide),
-    turnedSide(toSide, rotationOf(to)),
-    edgeStyle(edge).pathStyle,
-  );
+  const a = endOf(from, edge.fromSide, center(to));
+  const b = endOf(to, edge.toSide, center(from));
+  return edgePath(a.at, a.side, b.at, b.side, edgeStyle(edge).pathStyle);
+}
+
+/** Where an edge meets a node: the middle of a card's side, turned with the card, or a free end with no side. */
+function endOf(node: CanvasNode, side: Side | undefined, toward: Point): { at: Point; side: Side | null } {
+  if (isPoint(node)) return { at: center(node), side: null };
+  const s = side ?? facingSide(node, toward);
+  return { at: nodeAnchor(node, s), side: turnedSide(s, rotationOf(node)) };
 }
 
 // A turned card keeps its box in the file; its sides turn with it.
@@ -1029,9 +1037,11 @@ function distributeSelection(axis: "horizontal" | "vertical"): void {
 
 /** Moves the selected cards in the layer order. Groups move only among groups. */
 function reorderSelection(op: LayerOp): void {
-  const next = reorder(data.nodes, selection, op);
-  if (next.every((n, i) => n === data.nodes[i])) return;
-  data.nodes = next;
+  // Points are not drawn, so a step forward or back passes them by: they go last.
+  const cards = data.nodes.filter((n) => !isPoint(n));
+  const next = reorder(cards, selection, op);
+  if (next.every((n, i) => n === cards[i])) return;
+  data.nodes = [...next, ...data.nodes.filter(isPoint)];
   commit();
 }
 
@@ -1236,6 +1246,8 @@ type Drag =
   | { kind: "resize-many"; from: Rect; dx: Pull; dy: Pull; items: { node: CanvasNode; rect: Rect; scale: number }[]; others: Rect[]; changed: boolean }
   | { kind: "rotate"; node: CanvasNode; center: Point; startAngle: number; rotation: number }
   | { kind: "connect"; from: CanvasNode; side: Side; preview: SVGPathElement }
+  /** The arrow or line tool: from a pointer down on a card or the canvas. `drawing` once it moved 10 screen pixels. */
+  | { kind: "edge"; start: Point; from: CanvasNode | undefined; client: Point; drawing: boolean; heads: "arrow" | "line"; preview: SVGPathElement }
   | { kind: "draw"; start: Point; shape: ShapeKind; preview: HTMLElement }
   | { kind: "text"; start: Point };
 
@@ -1269,7 +1281,7 @@ viewport.addEventListener("pointerdown", (e) => {
     const scaled = new Map<string, CanvasNode>();
     for (const n of selectedNodes()) {
       scaled.set(n.id, n);
-      if (n.type === "group") for (const c of childrenOf(n)) scaled.set(c.id, c);
+      if (n.type === "group") for (const c of childrenOf(n)) if (!isPoint(c)) scaled.set(c.id, c);
     }
     // A locked card stops the scaling; one inside a selected group goes along, as it does when the group moves.
     if (selectedNodes().some(isLocked)) return;
@@ -1394,6 +1406,16 @@ function startPlacing(e: PointerEvent, p: Point): void {
     viewport.setPointerCapture(e.pointerId);
     return;
   }
+  if (tool.kind === "connection") {
+    const preview = document.createElementNS(SVG_NS, "path");
+    preview.classList.add("preview");
+    edgesLayer.append(preview);
+    const from = nodeUnder(e.clientX, e.clientY);
+    const start = from || e.altKey ? p : { x: snap(p.x, GRID), y: snap(p.y, GRID) };
+    drag = { kind: "edge", start, from, client: { x: e.clientX, y: e.clientY }, drawing: false, heads: tool.heads, preview };
+    viewport.setPointerCapture(e.pointerId);
+    return;
+  }
   if (tool.kind !== "shape") return;
   const preview = document.createElement("div");
   preview.className = "draw-preview";
@@ -1430,7 +1452,7 @@ function shifted(r: Rect, dx: number, dy: number): Rect {
 function snapCandidates(moving: Set<string>): Rect[] {
   const r = viewport.getBoundingClientRect();
   const area = rectFromPoints(toWorld(r.left - r.width, r.top - r.height), toWorld(r.right + r.width, r.bottom + r.height));
-  return data.nodes.filter((n) => !moving.has(n.id)).map(outlineOf).filter((b) => rectsIntersect(b, area));
+  return data.nodes.filter((n) => !moving.has(n.id) && !isPoint(n)).map(outlineOf).filter((b) => rectsIntersect(b, area));
 }
 
 function showGuides(guides: Guide[]): void {
@@ -1472,7 +1494,7 @@ viewport.addEventListener("pointermove", (e) => {
       selection.clear();
       drag.additive.forEach((id) => selection.add(id));
       for (const n of data.nodes) {
-        if (!isLocked(n) && rectsIntersect(r, n) && (n.type !== "group" || containsRect(r, n))) selection.add(n.id);
+        if (!isLocked(n) && !isPoint(n) && rectsIntersect(r, n) && (n.type !== "group" || containsRect(r, n))) selection.add(n.id);
       }
       showSelection();
       break;
@@ -1609,6 +1631,17 @@ viewport.addEventListener("pointermove", (e) => {
           : "";
       break;
     }
+    case "edge": {
+      if (!drag.drawing && Math.hypot(e.clientX - drag.client.x, e.clientY - drag.client.y) < 10) break;
+      drag.drawing = true;
+      const { a, b, over } = drawnEnds(drag, e, p);
+      const ga = endGeometry(a);
+      const gb = endGeometry(b);
+      drag.preview.setAttribute("d", edgePath(ga.at, ga.side, gb.at, gb.side, edgeDefaults.pathStyle).d);
+      world.querySelectorAll(".node.drop-target").forEach((el) => el.classList.remove("drop-target"));
+      if (over) nodeElement(over.id)?.classList.add("drop-target");
+      break;
+    }
     case "connect": {
       const a = nodeAnchor(drag.from, drag.side);
       const over = nodeUnder(e.clientX, e.clientY);
@@ -1624,11 +1657,48 @@ viewport.addEventListener("pointermove", (e) => {
   }
 });
 
+/** One end of a connection being drawn: on a card, at a side, or free at a point. */
+type DrawnEnd = { card: CanvasNode; side: Side } | { card?: undefined; at: Point };
+
+/** The end on `card`, by the side under `at` (or facing `other` near its center), else free at `at`. */
+function drawnEnd(card: CanvasNode | undefined, at: Point, other: Point): DrawnEnd {
+  return card ? { card, side: facingSide(card, nearCenter(card, at) ? other : at) } : { at };
+}
+
+function endGeometry(end: DrawnEnd): { at: Point; side: Side | null } {
+  return end.card ? { at: nodeAnchor(end.card, end.side), side: turnedSide(end.side, rotationOf(end.card)) } : { at: end.at, side: null };
+}
+
+/** A free end at the pointer: on the grid, at 15° steps from `from` with Shift, anywhere with Alt. */
+function freeEndAt(from: Point, p: Point, e: { shiftKey: boolean; altKey: boolean }): Point {
+  if (e.shiftKey) return snapAngle(from, p, 15);
+  return e.altKey ? p : { x: snap(p.x, GRID), y: snap(p.y, GRID) };
+}
+
+/** Both ends of a connection drawn with the arrow or line tool, and the card the pointer is over. */
+function drawnEnds(d: { start: Point; from: CanvasNode | undefined }, e: PointerEvent, p: Point) {
+  const under = nodeUnder(e.clientX, e.clientY);
+  const over = under && under.id !== d.from?.id ? under : undefined;
+  const a = drawnEnd(d.from, d.start, p);
+  const from = endGeometry(a).at;
+  const b = drawnEnd(over, over ? p : freeEndAt(from, p, e), from);
+  return { a, b, over };
+}
+
+/** The node an end names in the file: its card, or a new point. */
+function endNode(end: DrawnEnd): { id: string; side?: Side } {
+  if (end.card) return { id: end.card.id, side: end.side };
+  const point = pointNodeAt(end.at);
+  data.nodes.push(point);
+  return { id: point.id };
+}
+
 /** Dropped in the middle of a card: join it by the side that faces the edge's start instead. */
 function nearCenter(node: CanvasNode, p: Point): boolean {
   return Math.abs(p.x - (node.x + node.width / 2)) < node.width / 4 && Math.abs(p.y - (node.y + node.height / 2)) < node.height / 4;
 }
 
+/** The card under a screen point. Points are never drawn, so never under it. */
 function nodeUnder(clientX: number, clientY: number): CanvasNode | undefined {
   for (const el of document.elementsFromPoint(clientX, clientY)) {
     const nodeEl = (el as HTMLElement).closest?.(".node") as HTMLElement | null;
@@ -1720,24 +1790,47 @@ function endDrag(e: PointerEvent): void {
       world.querySelectorAll(".node.drop-target").forEach((el) => el.classList.remove("drop-target"));
       const over = nodeUnder(e.clientX, e.clientY);
       if (over && over.id === d.from.id) break;
-      let target = over;
-      if (!target) {
-        // Dropped on the empty canvas: a new card there, as in Obsidian.
-        target = textNodeAt(p);
-        data.nodes.push(target);
-        editing = target.id;
+      const edge: CanvasEdge = { id: newId(), fromNode: d.from.id, fromSide: d.side, toNode: "" };
+      selection.clear();
+      selection.add(edge.id);
+      if (!over && e.altKey) {
+        // Dropped on the empty canvas with Alt: a new card there, as in Obsidian.
+        const card = textNodeAt(p);
+        data.nodes.push(card);
+        editing = card.id;
+        Object.assign(edge, { toNode: card.id, toSide: facingSide(card, nodeAnchor(d.from, d.side)) });
+        selection.clear();
+        selection.add(card.id);
+      } else {
+        // On a card it binds; on the empty canvas the end stays free.
+        const to = endNode(drawnEnd(over, p, nodeAnchor(d.from, d.side)));
+        Object.assign(edge, { toNode: to.id, toSide: to.side });
+        if (!to.side) delete edge.toSide;
       }
-      const edge: CanvasEdge = {
-        id: newId(),
-        fromNode: d.from.id,
-        fromSide: d.side,
-        toNode: target.id,
-        toSide: facingSide(target, over && !nearCenter(over, p) ? p : nodeAnchor(d.from, d.side)),
-      };
       setEdgeStyle(edge, edgeDefaults);
       data.edges.push(edge);
+      commit();
+      break;
+    }
+    case "edge": {
+      d.preview.remove();
+      world.querySelectorAll(".node.drop-target").forEach((el) => el.classList.remove("drop-target"));
+      // Shorter than 10 screen pixels: nothing.
+      if (!d.drawing) break;
+      const { a, b } = drawnEnds(d, e, p);
+      const from = endNode(a);
+      const to = endNode(b);
+      const edge: CanvasEdge = { id: newId(), fromNode: from.id, toNode: to.id };
+      if (from.side) edge.fromSide = from.side;
+      if (to.side) edge.toSide = to.side;
+      setEdgeStyle(edge, edgeDefaults);
+      // The line tool draws no heads; the arrow tool always one at the end.
+      if (d.heads === "line") setEdgeStyle(edge, { fromHead: "none", toHead: "none" });
+      else if (edgeStyle(edge).toHead === "none") setEdgeStyle(edge, { toHead: "arrow" });
+      data.edges.push(edge);
+      setTool(SELECT);
       selection.clear();
-      selection.add(over ? edge.id : target.id);
+      selection.add(edge.id);
       commit();
       break;
     }
@@ -1824,6 +1917,8 @@ document.addEventListener("keydown", (e) => {
     setTool({ kind: "hand" });
   } else if (is("text")) {
     setTool({ kind: "text" });
+  } else if (is("arrow") || is("line")) {
+    setTool({ kind: "connection", heads: is("arrow") ? "arrow" : "line" });
   } else if (is("rectangle") || is("ellipse")) {
     setTool({ kind: "shape", shape: is("rectangle") ? "rectangle" : "ellipse" });
   } else if (is("card")) {
@@ -1922,7 +2017,7 @@ function runMenuAction(action: string, at: Point): void {
 }
 
 function selectAll(): void {
-  data.nodes.forEach((n) => isLocked(n) || selection.add(n.id));
+  data.nodes.forEach((n) => isLocked(n) || isPoint(n) || selection.add(n.id));
   showSelection();
 }
 
@@ -2139,6 +2234,11 @@ app.addEventListener("click", (e) => {
       return setTool(SELECT);
     case "hand":
       return setTool(tool.kind === "hand" ? SELECT : { kind: "hand" });
+    case "arrow-tool":
+    case "line-tool": {
+      const heads = button.dataset.action === "arrow-tool" ? "arrow" : "line";
+      return setTool(tool.kind === "connection" && tool.heads === heads ? SELECT : { kind: "connection", heads });
+    }
     case "shapes":
       if (tool.kind === "shape") return setTool(SELECT);
       shapeMenu.hidden = !shapeMenu.hidden;

@@ -91,57 +91,59 @@ export interface EdgeCurve {
   startDir: Point;
 }
 
-/** A curve that leaves `a` straight out of `sideA` and enters `b` straight into `sideB`. */
-export function edgeCurve(a: Point, sideA: Side, b: Point, sideB: Side | null): EdgeCurve {
+/** A curve that leaves `a` straight out of `sideA` and enters `b` straight into `sideB`. A free end (no side) has no pull. */
+export function edgeCurve(a: Point, sideA: Side | null, b: Point, sideB: Side | null): EdgeCurve {
   const dist = Math.hypot(b.x - a.x, b.y - a.y);
   const k = Math.min(Math.max(dist / 2, 30), 250);
-  const na = SIDE_NORMALS[sideA];
-  const c1 = { x: a.x + na.x * k, y: a.y + na.y * k };
-  let c2: Point;
-  if (sideB) {
-    const nb = SIDE_NORMALS[sideB];
-    c2 = { x: b.x + nb.x * k, y: b.y + nb.y * k };
-  } else {
-    c2 = { x: b.x, y: b.y };
-  }
+  const out = (p: Point, side: Side | null): Point =>
+    side ? { x: p.x + SIDE_NORMALS[side].x * k, y: p.y + SIDE_NORMALS[side].y * k } : { x: p.x, y: p.y };
+  const c1 = out(a, sideA);
+  const c2 = out(b, sideB);
   const mid = {
     x: 0.125 * a.x + 0.375 * c1.x + 0.375 * c2.x + 0.125 * b.x,
     y: 0.125 * a.y + 0.375 * c1.y + 0.375 * c2.y + 0.125 * b.y,
   };
+  const line = unit({ x: b.x - a.x, y: b.y - a.y }, { x: 1, y: 0 });
+  // At a free end the curve's tangent comes from the other control point.
+  const before = sideB ? c2 : c1;
+  const after = sideA ? c1 : c2;
   return {
     start: a,
     end: b,
     d: `M ${a.x} ${a.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${b.x} ${b.y}`,
     mid,
-    endDir: unit({ x: b.x - c2.x, y: b.y - c2.y }, sideB ? neg(SIDE_NORMALS[sideB]) : { x: 1, y: 0 }),
-    startDir: unit({ x: a.x - c1.x, y: a.y - c1.y }, neg(na)),
+    endDir: unit({ x: b.x - before.x, y: b.y - before.y }, sideB ? neg(SIDE_NORMALS[sideB]) : line),
+    startDir: unit({ x: a.x - after.x, y: a.y - after.y }, sideA ? neg(SIDE_NORMALS[sideA]) : neg(line)),
   };
 }
 
 /** The path of an edge in the given style: a curve, a straight line or right-angled elbows. */
-export function edgePath(a: Point, sideA: Side, b: Point, sideB: Side | null, style: PathStyle = "curved"): EdgeCurve {
+export function edgePath(a: Point, sideA: Side | null, b: Point, sideB: Side | null, style: PathStyle = "curved"): EdgeCurve {
   if (style === "curved") return edgeCurve(a, sideA, b, sideB);
   const points = style === "straight" ? [a, b] : elbowPoints(a, sideA, b, sideB);
   const last = points.length - 1;
+  const line = unit({ x: b.x - a.x, y: b.y - a.y }, { x: 1, y: 0 });
   return {
     start: a,
     end: b,
     d: "M " + points.map((p) => `${p.x} ${p.y}`).join(" L "),
     mid: pointAlong(points, 0.5),
-    endDir: unit({ x: b.x - points[last - 1]!.x, y: b.y - points[last - 1]!.y }, { x: 1, y: 0 }),
-    startDir: unit({ x: a.x - points[1]!.x, y: a.y - points[1]!.y }, neg(SIDE_NORMALS[sideA])),
+    endDir: unit({ x: b.x - points[last - 1]!.x, y: b.y - points[last - 1]!.y }, line),
+    startDir: unit({ x: a.x - points[1]!.x, y: a.y - points[1]!.y }, sideA ? neg(SIDE_NORMALS[sideA]) : neg(line)),
   };
 }
 
 const ELBOW_OUT = 24;
 
 /** Corners of a right-angled path that leaves `a` straight out of `sideA` and enters `b` straight into `sideB`. */
-export function elbowPoints(a: Point, sideA: Side, b: Point, sideB: Side | null): Point[] {
-  const na = SIDE_NORMALS[sideA];
+export function elbowPoints(a: Point, sideA: Side | null, b: Point, sideB: Side | null): Point[] {
+  const none = { x: 0, y: 0 };
+  const na = sideA ? SIDE_NORMALS[sideA] : none;
   const p1 = { x: a.x + na.x * ELBOW_OUT, y: a.y + na.y * ELBOW_OUT };
-  const nb = sideB ? SIDE_NORMALS[sideB] : { x: 0, y: 0 };
+  const nb = sideB ? SIDE_NORMALS[sideB] : none;
   const p2 = { x: b.x + nb.x * ELBOW_OUT, y: b.y + nb.y * ELBOW_OUT };
-  const horizA = na.y === 0;
+  // A free end runs the way the bound end leaves, or along the longer axis when both are free.
+  const horizA = sideA ? na.y === 0 : sideB ? nb.y === 0 : Math.abs(b.x - a.x) >= Math.abs(b.y - a.y);
   const horizB = sideB ? nb.y === 0 : horizA;
   let middle: Point[];
   if (horizA && horizB) {
@@ -290,6 +292,14 @@ export function zoomAt(view: View, zoom: number, at: Point): View {
   const wx = (at.x - view.x) / view.zoom;
   const wy = (at.y - view.y) / view.zoom;
   return { zoom: z, x: at.x - wx * z, y: at.y - wy * z };
+}
+
+/** `to`, turned around `from` to the nearest multiple of `step` degrees, at the same distance. */
+export function snapAngle(from: Point, to: Point, step: number): Point {
+  const len = Math.hypot(to.x - from.x, to.y - from.y);
+  const s = (step * Math.PI) / 180;
+  const a = Math.round(Math.atan2(to.y - from.y, to.x - from.x) / s) * s;
+  return { x: from.x + Math.cos(a) * len, y: from.y + Math.sin(a) * len };
 }
 
 export function snap(v: number, grid: number): number {

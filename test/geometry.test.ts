@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { anchor, autoSides, boundsOf, containsRect, edgeCurve, fitView, gridAround, sideFacing, turnedBounds, zoomAt } from "../webview/geometry";
+import { anchor, autoSides, boundsOf, containsRect, edgeCurve, edgePath, fitView, gridAround, sideFacing, snapAngle, turnedBounds, zoomAt } from "../webview/geometry";
 
 const r = { x: 0, y: 0, width: 200, height: 100 };
 
@@ -75,5 +75,37 @@ describe("turnedBounds", () => {
     expect(b.height).toBeCloseTo(40);
     const d = turnedBounds({ x: 0, y: 0, width: 10, height: 10 }, 45);
     expect(d.width).toBeCloseTo(Math.SQRT2 * 10);
+  });
+});
+
+describe("snapAngle", () => {
+  const from = { x: 0, y: 0 };
+  const angle = (p: { x: number; y: number }) => (Math.atan2(p.y, p.x) * 180) / Math.PI;
+
+  it("snaps to 15° steps and keeps the length", () => {
+    const flat = snapAngle(from, { x: 100, y: 5 }, 15);
+    expect(angle(flat)).toBeCloseTo(0);
+    expect(Math.hypot(flat.x, flat.y)).toBeCloseTo(Math.hypot(100, 5));
+    expect(angle(snapAngle(from, { x: 100, y: 28 }, 15))).toBeCloseTo(15);
+    const down = snapAngle({ x: 10, y: 10 }, { x: 13, y: 200 }, 15);
+    expect(down.x).toBeCloseTo(10);
+    expect(down.y).toBeCloseTo(10 + Math.hypot(3, 190));
+  });
+});
+
+describe("free ends", () => {
+  it("draws a curve from a free start straight towards a card's side", () => {
+    const c = edgePath({ x: 0, y: 0 }, null, { x: 200, y: 0 }, "left", "curved");
+    expect(c.start).toEqual({ x: 0, y: 0 });
+    expect(c.endDir).toEqual({ x: 1, y: 0 });
+    expect(c.startDir.x).toBeCloseTo(-1);
+  });
+
+  it("points the heads along the line when both ends are free", () => {
+    for (const style of ["curved", "straight", "elbow"] as const) {
+      const c = edgePath({ x: 0, y: 0 }, null, { x: 0, y: 100 }, null, style);
+      expect(c.endDir.y, style).toBeCloseTo(1);
+      expect(c.startDir.y, style).toBeCloseTo(-1);
+    }
   });
 });

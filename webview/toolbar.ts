@@ -5,7 +5,13 @@ import { icon, shapeIcon, title } from "./icons";
 import { shortcutText, tooltip } from "./shortcuts";
 
 /** What a press on the canvas does. The select tool selects and moves; the others place or pan. */
-export type Tool = { kind: "select" } | { kind: "hand" } | { kind: "text" } | { kind: "shape"; shape: ShapeKind };
+export type Tool =
+  | { kind: "select" }
+  | { kind: "hand" }
+  | { kind: "text" }
+  | { kind: "shape"; shape: ShapeKind }
+  /** The arrow tool and the line tool: they draw connections, with an arrow head or none. */
+  | { kind: "connection"; heads: "arrow" | "line" };
 
 export const SELECT: Tool = { kind: "select" };
 
@@ -22,6 +28,8 @@ export const TOOLBAR_BUTTONS: ToolbarButton[] = [
   { action: "hand", icon: "hand", label: "Hand: drag to pan", shortcuts: ["hand"] },
   { action: "text-tool", icon: "type", label: "Text: click on the canvas to write", shortcuts: ["text"] },
   { action: "shapes", icon: "shapes", label: "Shapes: pick one, then click or drag on the canvas", shortcuts: ["rectangle", "ellipse"] },
+  { action: "arrow-tool", icon: "arrow", label: "Arrow: drag between cards or anywhere", shortcuts: ["arrow"] },
+  { action: "line-tool", icon: "line", label: "Line: drag between cards or anywhere", shortcuts: ["line"] },
   { action: "text", icon: "card", label: "Add card (or double-click the canvas)", shortcuts: ["card"] },
   { action: "file", icon: "file", label: "Add note or media from the workspace", shortcuts: [] },
   { action: "image", icon: "image", label: "Add image (or paste one)", shortcuts: [] },
@@ -51,13 +59,15 @@ export function toolbarHtml(): string {
 
 /** Marks the tool's button and sets the canvas cursor for it. */
 export function showTool(toolbar: HTMLElement, viewport: HTMLElement, tool: Tool): void {
-  viewport.classList.toggle("placing", tool.kind === "text" || tool.kind === "shape");
+  viewport.classList.toggle("placing", tool.kind === "text" || tool.kind === "shape" || tool.kind === "connection");
   viewport.classList.toggle("hand", tool.kind === "hand");
   const active: Record<string, boolean> = {
     select: tool.kind === "select",
     hand: tool.kind === "hand",
     "text-tool": tool.kind === "text",
     shapes: tool.kind === "shape",
+    "arrow-tool": tool.kind === "connection" && tool.heads === "arrow",
+    "line-tool": tool.kind === "connection" && tool.heads === "line",
   };
   for (const [action, on] of Object.entries(active)) {
     toolbar.querySelector(`[data-action="${action}"]`)!.classList.toggle("active", on);

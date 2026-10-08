@@ -33,6 +33,10 @@ Obsidian shows all three as plain text cards.
 
 **Side**: where a connection meets a card: top, right, bottom or left.
 
+**Free end**: an end of a connection that joins no card and sits at a spot on the canvas, as an arrow in Excalidraw does.
+
+**Point**: the node that holds a free end: an empty 1×1 text node with `"shape": "point"`. The canvas never draws, selects or exports it; it goes when its last connection goes. Obsidian shows it as a tiny card. Code: `isPoint`, `pointNodeAt`.
+
 **End** and **head**: JSON Canvas knows two ends, `none` and `arrow`. The **head** is the drawn shape at an end (arrow, open, dot, bar, diamond); any head other than none is saved as an `arrow` end plus a head property.
 
 **Edge style**: a connection's look: heads, line style (solid, dashed, dotted), line width, path style (curved, straight, elbow). Code: `EdgeStyle`.
@@ -77,4 +81,4 @@ Obsidian shows all three as plain text cards.
 
 **Bottom toolbar**: the row of buttons that picks a tool and adds cards, shapes, text, files, images, links and groups.
 
-**Tool**: what a press on the canvas does. Code: `Tool`. The **select tool** (V) selects, moves and resizes; the **hand tool** (H) pans with a left drag; the text and shape tools place free text and shapes.
+**Tool**: what a press on the canvas does. Code: `Tool`. The **select tool** (V) selects, moves and resizes; the **hand tool** (H) pans with a left drag; the text and shape tools place free text and shapes. The **arrow tool** (A) and the **line tool** (L) draw connections anywhere, with an arrow head at the end or none. Code: `{ kind: "connection" }`.
