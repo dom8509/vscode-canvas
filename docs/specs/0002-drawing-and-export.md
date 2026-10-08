@@ -418,6 +418,13 @@ _Drawing styles_ item says strokes follow the drawing style too.
 
 ## Decisions
 
+- **A stroke stays an empty card in Obsidian** (settled by the product owner
+  on 2026-10-08, who does not use Obsidian): `"text": ""`, as the intent says;
+  the README notes how it looks there.
+- **A point is always hidden**, even if someone wrote in it or resized it in
+  Obsidian (settled the same way). The simplest rule; the text stays in the
+  file.
+
 - **A card's dot dropped on empty space leaves a free end** (settled by the
   product owner on 2026-10-08: arrows do not have to be pinned to cards). Alt
   keeps the old way, a new card there, so nothing is lost.
@@ -503,21 +510,7 @@ _Drawing styles_ item says strokes follow the drawing style too.
 
 ## Concerns
 
-C1. A stroke is a large empty card in Obsidian -- policy: AGENTS.md _Obsidian
-round-trip_ ("a plain fallback Obsidian understands") -- owner: dom8509
-    The intent accepts empty cards for points (1×1). A stroke's box can be
-    hundreds of pixels wide, so Obsidian shows a big empty card over whatever
-    lies under it, and a user may delete it there.
-    Options: accept, as the intent's _Risks_ does, and say so in the README; or
-    put a short text in the stroke (e.g. "✏️ drawing") so the card explains
-    itself, at the cost of the `"text": ""` the intent names.
-
-C2. Free ends and Obsidian edits -- policy: intent R3 -- owner: dom8509
-    In Obsidian a point is a normal card. Someone may write in it, resize it or
-    connect a third card to it. On return it is still `"shape": "point"`, so the
-    canvas hides it, text and all.
-    Options: hide it only while its text is empty and it has the 1×1 size, else
-    show it as a plain card (and stop treating it as a point); or always hide it.
+None. The last two, both about Obsidian, are settled under _Decisions_.
 
 ## Out of scope
 
