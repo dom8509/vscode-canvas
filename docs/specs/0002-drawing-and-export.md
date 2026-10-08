@@ -1,7 +1,7 @@
 ---
 title: Drawing, free arrows and export
 intent: docs/intents/0002-drawing-and-export.md
-intent_commit: 19bf2a2
+intent_commit: c29113b
 status: draft
 created: 2026-10-08
 policies:
@@ -121,60 +121,68 @@ R16. A stroke is selected by a click on its line (within 6 screen pixels) or by
 a marquee touching its box. Like any card it can be moved, resized alone or in
 a multi-selection (its points scale with the box), turned, grouped, reordered,
 aligned, snapped to guides, locked, copied and deleted. Double-click does
-nothing; a stroke has no text and no connection dots. (intent: R4)
+nothing on an open stroke; it has no text and no connection dots. (intent: R4)
+
+**Custom shapes**
+
+R17. A stroke whose end is released within 12 screen pixels of its start (and
+whose box is at least 16 pixels on its longer side) closes: its last point joins
+its first, and it becomes a **custom shape**, saved with `"closed": true`.
+Its outline stays as drawn. (intent: R4, _Non-goals_)
+
+R18. A custom shape works like a shape: the properties panel adds fill (none,
+light, solid; none by default) and the text settings; a double-click writes
+text in it, centered in its box; it has connection dots on the sides of its box,
+and connections meet those sides. A filled custom shape is selected by a click
+inside it; an unfilled one by its line. The eraser passes by a custom shape that
+holds text. Obsidian shows it as a text card with its text. (intent: R4)
 
 **Eraser**
 
-R17. The bottom toolbar gains an eraser tool (**E**). While dragging, every
+R19. The bottom toolbar gains an eraser tool (**E**). While dragging, every
 stroke the pointer passes within 8 screen pixels of fades; on release those
 strokes are deleted in one undo step. Escape during the drag cancels it.
 (intent: R5)
 
-R18. The eraser touches only strokes: never cards, shapes, free text, groups or
+R20. The eraser touches only strokes: never cards, shapes, free text, groups or
 connections, and never a locked stroke. (intent: R5)
 
 **Export**
 
-R19. The commands *Canvas: Export as PNG*, *Canvas: Export as SVG* and *Canvas:
-Copy as PNG* act on the active canvas. Export as PNG and SVG are also buttons
-in the zoom bar. The context menu offers all three, for the selection and for
-the empty canvas. (intent: R6)
+R21. The commands *Canvas: Export as PNG* and *Canvas: Export as SVG* act on the
+active canvas. Both are also buttons in the zoom bar, and items in the context
+menu, for the selection and for the empty canvas. (intent: R6)
 
-R20. An export holds the selection if there is one, else every card,
+R22. An export holds the selection if there is one, else every card,
 connection and stroke, inside a margin of 32 pixels. Selection outlines,
 handles, the grid and the empty-canvas hint are left out. (intent: R6)
 
-R21. Before saving, a quick pick offers: background on or off, light or dark
+R23. Before saving, a quick pick offers: background on or off, light or dark
 paper, and for PNG a scale of 1×, 2× or 3×. The paper starts on the one the
 canvas shows now; the other choices are remembered. (intent: R6)
 
-R22. *Copy as PNG* (**Ctrl/Cmd+Shift+C** on the canvas) puts a PNG at 2× on the
-clipboard, with the last background, on the paper the canvas shows, with no
-dialog. (intent: R6)
-
-R23. An export looks like the canvas: the same fonts (the handwriting font
+R24. An export looks like the canvas: the same fonts (the handwriting font
 embedded in an SVG), the same Rough.js lines from the same seeds, images, note
 previews, shapes, free text, strokes and heads. The SVG file and the PNG need
 nothing outside themselves. (intent: R6, _Risks_)
 
-R24. The file is saved through VS Code's save dialog, which starts in the
+R25. The file is saved through VS Code's save dialog, which starts in the
 folder of the canvas with the canvas's name and `.png` or `.svg`. (intent: R6)
 
 **Done**
 
-R25. Free ends, rebound ends, strokes and erased strokes survive a save, a
+R26. Free ends, rebound ends, strokes, custom shapes and erased strokes survive a save, a
 reload and Undo/Redo through VS Code. A canvas with points and strokes opens in
 Obsidian without errors, and its other cards and connections look as before.
 (intent: acceptance criteria)
 
-R26. The new keys (**A**, **L**, **P**, **E**, **Ctrl/Cmd+Shift+C**) show in the
-toolbar tooltips and hints, the context menu and the `?` overview.
-(intent: R1, R4, R5, R6)
+R27. The new keys (**A**, **L**, **P**, **E**) show in the toolbar tooltips and
+hints and the `?` overview. (intent: R1, R4, R5)
 
-R27. `README.md`, section _Using it_, describes the arrow and line tools, end
-handles, free ends, the pen, the eraser, export and copy, and how points and
-strokes look in Obsidian. `package.json` `contributes.commands` lists the three
-commands. `npm run check` passes. (intent: acceptance criteria)
+R28. `README.md`, section _Using it_, describes the arrow and line tools, end
+handles, free ends, the pen, custom shapes, the eraser and export, and how
+points, strokes and custom shapes look in Obsidian. `package.json`
+`contributes.commands` lists the two commands. `npm run check` passes. (intent: acceptance criteria)
 
 ## Design
 
@@ -185,17 +193,17 @@ in `test/`, written first (`AGENTS.md`, _Code_):
 
 | Module | New? | Holds | Test |
 | --- | --- | --- | --- |
-| `src/jsonCanvas.ts` | existing | `isPoint(node)`, `pointNodeAt(p)` (R9), `prunePoints(data)` (R11), `pointsOfEdges(data, edgeIds)` for copy and move (R8, R12), `isStroke(node)`, `strokePoints(node)` and `setStrokePoints(node, points)` (R15) | `test/jsonCanvas.test.ts` |
-| `webview/strokes.ts` | new | `simplify(points, tolerance)` (Ramer–Douglas–Peucker), `smoothPath(points)` (Catmull-Rom to cubic Bézier, SVG path data), `strokeBox(points)` → box and relative points, `scalePoints(points, from, to)` (R16), `hitStroke(node, p, tolerance)` with turn (R16, R17), `strokesTouched(nodes, path, tolerance)` (R17) | `test/strokes.test.ts` |
-| `webview/geometry.ts` | existing | `snapAngle(from, to, step)` (R3); `edgePath` and `edgeCurve` accept a null start side, as they already do for the end side; `exportBounds(rects, margin)` (R20) | `test/geometry.test.ts` |
-| `webview/shortcuts.ts` | existing | `arrow` (A), `line` (L), `pen` (P), `eraser` (E) in _Tools_; `copyPng` (Mod+Shift+C) in _Editing_ (R26) | `test/shortcuts.test.ts` already checks no key is used twice |
+| `src/jsonCanvas.ts` | existing | `isPoint(node)`, `pointNodeAt(p)` (R9), `prunePoints(data)` (R11), `pointsOfEdges(data, edgeIds)` for copy and move (R8, R12), `isStroke(node)`, `strokePoints(node)` and `setStrokePoints(node, points)` (R15), `isClosed(node)` and `setClosed(node, on)`, which leaves out `false` (R17); `nodeLook` gives a stroke `fill: "none"` by default and `setNodeLook` leaves that default out (R18) | `test/jsonCanvas.test.ts` |
+| `webview/strokes.ts` | new | `simplify(points, tolerance)` (Ramer–Douglas–Peucker), `smoothPath(points)` (Catmull-Rom to cubic Bézier, SVG path data), `strokeBox(points)` → box and relative points, `scalePoints(points, from, to)` (R16), `hitStroke(node, p, tolerance)` with turn (R16, R19), `strokesTouched(nodes, path, tolerance)` (R19), `closes(points, tolerance, minSize)` (R17), `hitInside(node, p)` for a filled custom shape (R18) | `test/strokes.test.ts` |
+| `webview/geometry.ts` | existing | `snapAngle(from, to, step)` (R3); `edgePath` and `edgeCurve` accept a null start side, as they already do for the end side; `exportBounds(rects, margin)` (R22) | `test/geometry.test.ts` |
+| `webview/shortcuts.ts` | existing | `arrow` (A), `line` (L), `pen` (P), `eraser` (E) in _Tools_ (R27) | `test/shortcuts.test.ts` already checks no key is used twice |
 | `webview/toolbar.ts` | existing | `Tool` gains `connection`, `pen` and `eraser`; `TOOLBAR_BUTTONS` gains four buttons; `showTool` marks them | none (DOM) |
-| `webview/contextMenuItems.ts` | existing | `exportPng`, `exportSvg`, `copyPng` items in both menus (R19) | `test/contextMenuItems.test.ts` |
-| `webview/nodeDefaults.ts` | existing | `pickNodeDefaults` for a stroke: color and stroke width (R14) | `test/nodeDefaults.test.ts` |
+| `webview/contextMenuItems.ts` | existing | `exportPng` and `exportSvg` items in both menus (R21) | `test/contextMenuItems.test.ts` |
+| `webview/nodeDefaults.ts` | existing | `pickNodeDefaults` for a stroke: color and stroke width (R14); for a custom shape also fill, font and text size (R18) | `test/nodeDefaults.test.ts` |
 | `webview/arrange.ts` | existing | no change: `main.ts` leaves points out of what it hands to `reorder`, `align`, `distribute`, `snapGuides` and `scaleRects` (R10) | `test/arrange.test.ts` unchanged |
 | `webview/export.ts` | new | `buildSvg(...)`: an SVG document of the chosen elements, from the same render code as the board; fonts and images inlined | `test/export.test.ts` for the parts without a DOM: bounds, font and image inlining as strings |
-| `src/canvasEditor.ts` | existing | export and copy messages, image inlining, save dialog (below) | none (`vscode`) |
-| `src/extension.ts` | existing | the three commands | none (`vscode`) |
+| `src/canvasEditor.ts` | existing | export messages, image inlining, save dialog (below) | none (`vscode`) |
+| `src/extension.ts` | existing | the two commands | none (`vscode`) |
 
 ### Free ends (R1–R12)
 
@@ -272,21 +280,37 @@ style row. `setSelectedNodeLook` already writes `strokeWidth` through
 on a stroke because it is a text node. A new stroke applies
 `pickNodeDefaults(nodeDefaults, "draw")`.
 
-### Eraser (R17–R18)
+### Custom shapes (R17–R18)
+
+On release of a pen stroke, `closes` checks the distance from the last point to
+the first in screen pixels and the box size. When it closes, the last point is
+set to the first and `setClosed(node, true)` runs before the commit.
+
+`renderNodes` gives a closed stroke the classes `shape` and `fill-<fill>`, as
+shapes get today, so the existing `.outline` fill rules in `webview/style.css`
+apply; its path ends in `Z`. It gets the `.content` element for its text and
+the four `.connect` dots, as any card does. `startEditing` already works on
+any text node; only the guard that stops it on strokes lets closed ones pass.
+Connections use `nodeAnchor` on the box, as for every shape.
+
+The properties panel shows `.shape-tools` (fill only, no shape picker) and
+`.text-tools` for custom shapes. The eraser skips a closed stroke whose `text`
+is not empty.
+
+
 
 A drag kind `"erase"` keeps a set of stroke ids. On each move it tests the
 segment from the last pointer point with `strokesTouched` (unlocked strokes
 only) and adds a `.fading` class to those elements. On release it deletes them and commits
 once; Escape clears the set and the classes.
 
-### Export (R19–R24)
+### Export (R21–R25)
 
-**Commands.** `src/extension.ts` registers `canvas.exportPng`,
-`canvas.exportSvg` and `canvas.copyPng`. Each finds the panel of
+**Commands.** `src/extension.ts` registers `canvas.exportPng` and
+`canvas.exportSvg`. Each finds the panel of
 `CanvasEditorProvider.activeUri` and posts `{ type: "export"; format: "png" |
-"svg" | "clipboard"; options }` after the quick pick (R21). The zoom bar
-buttons, the context menu items and **Ctrl/Cmd+Shift+C** send `{ type:
-"exportRequest"; format }` to the host, which runs the same command, so there
+"svg"; options }` after the quick pick (R23). The zoom bar buttons and the
+context menu items send `{ type: "exportRequest"; format }` to the host, which runs the same command, so there
 is one path. The webview tells the host the paper it shows in that message, so
 the quick pick starts on it.
 
@@ -310,8 +334,7 @@ files and the two font files, read with `vscode.workspace.fs`.
 
 **PNG.** The webview draws the SVG on an `OffscreenCanvas` at the chosen scale
 and sends `{ type: "exported"; format; base64 }`. Because every resource is a
-data URI, the canvas is not tainted. **Copy as PNG** writes the blob with
-`navigator.clipboard.write` in the webview; see C5.
+data URI, the canvas is not tainted.
 
 **Saving.** The host shows `vscode.window.showSaveDialog` with `defaultUri` the
 canvas path with the new extension and writes the bytes with
@@ -319,11 +342,11 @@ canvas path with the new extension and writes the bytes with
 
 **Protocol.** `src/protocol.ts`:
 
-- `HostMessage` gains `{ type: "export"; format: "png" | "svg" | "clipboard";
+- `HostMessage` gains `{ type: "export"; format: "png" | "svg";
   background: boolean; paper: "light" | "dark"; scale: 1 | 2 | 3 }` and
   `{ type: "inlined"; data: Record<string, string> }`.
-- `WebviewMessage` gains `{ type: "exportRequest"; format: "png" | "svg" |
-  "clipboard"; paper: Paper }`,
+- `WebviewMessage` gains `{ type: "exportRequest"; format: "png" | "svg";
+  paper: Paper }`,
   `{ type: "inline"; paths: string[] }` and `{ type: "exported"; format: "png" |
   "svg"; base64: string }`.
 
@@ -332,17 +355,16 @@ canvas path with the new extension and writes the bytes with
 The new keys go into `SHORTCUTS` in `webview/shortcuts.ts`, and the keydown
 handler in `main.ts` checks them with `matchesShortcut`, as it does for every
 key now. The tooltips, toolbar hints, context menu and `?` overview read them
-from there. **Ctrl/Cmd+Shift+C** follows the rule of Plan 0001, C2: check for a
-clash with VS Code in Build; add `contributes.keybindings` scoped to
-`activeCustomEditorId == 'canvas.editor'` only if it clashes.
+from there. A, L, P and E are free today.
 
 ### Docs
 
 `README.md` _Using it_: the arrow and line tools, end handles, free ends and how
 they look in Obsidian (a tiny empty card), the pen, the eraser, strokes in
-Obsidian (an empty card the size of the stroke), export and copy. The
+Obsidian (an empty card the size of the stroke), custom shapes (a text card
+with their text), and export. The
 _Drawing styles_ item says strokes follow the drawing style too.
-`package.json` `contributes.commands` gets the three commands and
+`package.json` `contributes.commands` gets the two commands and
 `contributes.menus.commandPalette` shows them only when
 `activeCustomEditorId == canvas.editor`. `CONTEXT.md` gets: **Free end**,
 **Point** (the node that holds a free end), **Stroke**, **Pen**, **Eraser**,
@@ -371,6 +393,15 @@ _Drawing styles_ item says strokes follow the drawing style too.
   border then also fits a stroke, as in Excalidraw.
 - **Locked strokes are not erased.** A lock means "cannot be deleted" (Plan
   0001, C5); the eraser deletes.
+- **A stroke closes by itself when its ends meet**, as in Excalidraw. Rejected:
+  a "close" button, which is one more step for the common case. A circle drawn
+  around something stays usable: unfilled by default, and selected by its line,
+  so a click inside still reaches what lies under it.
+- **A custom shape is a stroke with `"closed": true`, not a new shape kind.** It
+  keeps its `points`, so the pen, eraser, resize and export code stays one
+  path. Its text makes Obsidian show a useful card, which softens C1.
+- **Connections meet a custom shape's box**, as for every shape. Rejected:
+  meeting the drawn outline, which needs path intersection for a small gain.
 - **Export paper is a choice, not the screen.** The quick pick starts on the
   paper shown, so a dark-theme user can still export light for a document.
 - **Strokes follow the drawing style through Rough.js**, like every other line
@@ -403,7 +434,7 @@ _Drawing styles_ item says strokes follow the drawing style too.
    measures 500 strokes; if a redraw on drag lags, it redraws only the moved
    elements during a drag, the same fix Spec 0001 carries for 300 cards.
 4. _Export in the context menu "with Intent 0001"_ (intent, R6). Answered:
-   Intent 0001 is built, so both menus get the three items (R19).
+   Intent 0001 is built, so both menus get the two export items (R21).
 
 ## Concerns
 
@@ -431,14 +462,7 @@ C3. Free ends and Obsidian edits -- policy: intent R3 -- owner: dom8509
     Options: hide it only while its text is empty and it has the 1×1 size, else
     show it as a plain card (and stop treating it as a point); or always hide it.
 
-C4. Clipboard access from a webview -- policy: none covers it -- owner: dom8509
-    `navigator.clipboard.write` with an image needs focus and permission; it
-    is not certain in a VS Code webview on every platform, and the host API
-    `vscode.env.clipboard` takes text only.
-    Options: try it in Build on Windows, macOS and Linux; if it fails, fall
-    back to saving a file and say so, or drop *Copy as PNG* from this spec.
-
-C5. Export looks like the canvas "exactly" -- policy: intent acceptance
+C4. Export looks like the canvas "exactly" -- policy: intent acceptance
 criteria -- owner: dom8509
     `foreignObject` layout can differ from the board by a pixel or two (font
     hinting, line breaks), and there is no screenshot test in `npm run check`.
@@ -455,3 +479,6 @@ criteria -- owner: dom8509
   still adds one).
 - Partial erase that splits a stroke; the eraser deletes whole strokes.
 - Export of a canvas that is not open in the editor (from the Explorer).
+- *Copy as PNG*: dropped by the product owner on 2026-10-08, because an image
+  on the clipboard from a webview is not reliable on every platform.
+- Reshaping a custom shape's outline point by point; it is resized as a whole.
