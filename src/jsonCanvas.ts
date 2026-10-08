@@ -308,7 +308,8 @@ export function nodeLook(node: CanvasNode): NodeLook {
   const size = FONT_SIZES.includes(node.fontSize as FontSize) ? (node.fontSize as FontSize) : undefined;
   return {
     shape: shape as NodeLook["shape"],
-    fill: oneOf(FILLS, node.fill, "semi"),
+    // A stroke closed into a custom shape starts unfilled, so it does not hide what it is drawn around.
+    fill: oneOf(FILLS, node.fill, isStroke(node) ? "none" : "semi"),
     fontSize: size ?? (shape === "card" ? undefined : "m"),
     fontFamily: oneOf(FONT_FAMILIES, node.fontFamily, "sans"),
     strokeWidth: oneOf(LINE_WIDTHS, node.strokeWidth, "normal"),
@@ -327,7 +328,8 @@ const LOOK_DEFAULTS: Record<keyof NodeLook, string> = {
 export function setNodeLook(node: CanvasNode, look: Partial<NodeLook>): void {
   if ((node.type !== "text" && node.type !== "file") || isPoint(node)) return;
   for (const [key, value] of Object.entries(look) as [keyof NodeLook, string | undefined][]) {
-    if (!value || value === LOOK_DEFAULTS[key]) delete node[key];
+    const fallback = key === "fill" && isStroke(node) ? "none" : LOOK_DEFAULTS[key];
+    if (!value || value === fallback) delete node[key];
     else node[key] = value;
   }
 }
@@ -473,4 +475,14 @@ export function strokePoints(node: CanvasNode): { x: number; y: number }[] {
 
 export function setStrokePoints(node: CanvasNode, points: { x: number; y: number }[]): void {
   node.points = flat(points);
+}
+
+/** A stroke whose ends met: a custom shape, with a fill and text. */
+export function isClosed(node: CanvasNode): boolean {
+  return isStroke(node) && node.closed === true;
+}
+
+export function setClosed(node: CanvasNode, on: boolean): void {
+  if (on) node.closed = true;
+  else delete node.closed;
 }

@@ -92,6 +92,16 @@ open format Obsidian uses, so the files work in both.
   you picked last.
   A stroke is saved as an empty card the size of the stroke with its points
   in it, so Obsidian shows an empty card there.
+- **Custom shapes:** a stroke whose end comes back near its start closes
+  into a shape of its own; so does a pinned line when you click near its
+  first pin after two more pins (with straight sides, and no connection).
+  A custom shape keeps its outline as drawn and works like a shape: the
+  properties panel sets its fill (none, light, solid; none at first), color,
+  width and text; double-click its line, or press **Enter**, to write in it;
+  connections join the sides of its box. A filled one is selected by a click
+  inside it, an unfilled one by its line. The eraser leaves a custom shape
+  with text in it alone. Obsidian shows a custom shape as a text card with
+  its text.
 - **Eraser:** pick the eraser (**E**) and drag over strokes: each stroke it
   passes fades, and goes when you let go, all in one undo step. **Escape**
   while dragging keeps them. The eraser only wipes strokes, never cards,

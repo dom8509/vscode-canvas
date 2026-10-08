@@ -20,6 +20,10 @@ describe("pickNodeDefaults", () => {
     expect(pickNodeDefaults(all, "draw")).toEqual({ color: "4", strokeWidth: "bold" });
   });
 
+  it("gives a custom shape its fill and text settings too", () => {
+    expect(pickNodeDefaults(all, "draw", true)).toEqual({ color: "4", fill: "solid", fontFamily: "hand", fontSize: "l", strokeWidth: "bold" });
+  });
+
   it("never takes the shape itself, and leaves out what was not picked", () => {
     expect(pickNodeDefaults({ fill: "none" }, "ellipse")).toEqual({ fill: "none" });
     expect(pickNodeDefaults({}, "card")).toEqual({});

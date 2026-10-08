@@ -169,6 +169,22 @@ button {
   pointer-events: auto;
 }
 
+/* A custom shape takes connections at its dots, text in its editor, and, when filled, clicks inside it. */
+.node.stroke > .connect,
+.node.stroke .editor,
+.node.stroke.fill-semi .ink .outline,
+.node.stroke.fill-solid .ink .outline {
+  pointer-events: auto;
+}
+
+.ink .outline {
+  stroke: none;
+}
+
+.node.stroke.fill-none .ink .outline {
+  fill: none;
+}
+
 /* A stroke's line runs along its box, so its handles only take clicks once it is selected. */
 .node.stroke:not(.selected) > .resize {
   display: none;

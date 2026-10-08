@@ -24,6 +24,7 @@ import {
   rotationOf,
   isImageFile,
   isLocked,
+  isClosed,
   isPoint,
   isStroke,
   pointNodeAt,
@@ -31,6 +32,7 @@ import {
   prunePoints,
   rebind,
   setBends,
+  setClosed,
   setLocked,
   setStrokePoints,
   strokePoints,
@@ -88,7 +90,7 @@ import {
   setDrawingStyle,
 } from "./drawingStyles";
 import { sketchPath } from "./sketch";
-import { scalePoints, simplify, smoothPath, strokeBox, strokesTouched } from "./strokes";
+import { closes, scalePoints, simplify, smoothPath, strokeBox, strokesTouched } from "./strokes";
 import { escapeHtml, renderMarkdown, stripFrontMatter } from "./markdown";
 import { defaultShapeSize, shapeMarks, shapePath } from "./shapes";
 import { icon, shapeIcon, title } from "./icons";
@@ -447,7 +449,7 @@ function renderNodes(): void {
     if (node.type === "group") {
       renderGroup(el, node);
       groupsLayer.append(el);
-    } else if (isStroke(node)) {
+    } else if (isStroke(node) && !isClosed(node)) {
       renderStroke(el, node);
       nodesLayer.append(el);
     } else {
@@ -460,7 +462,13 @@ function renderNodes(): void {
         if (look.fontFamily !== "sans") el.classList.add(`ff-${look.fontFamily}`);
         if (look.strokeWidth !== "normal") el.classList.add(`stroke-${look.strokeWidth}`);
       }
-      if (node.type === "text") {
+      if (isClosed(node)) {
+        // A custom shape: its outline as drawn, a fill, and text in the middle of its box.
+        renderStroke(el, node);
+        el.classList.add("shape", `fill-${nodeLook(node).fill}`);
+        el.append(body);
+        body.innerHTML = renderMarkdown((node as TextNode).text);
+      } else if (node.type === "text") {
         const look = nodeLook(node);
         if (look.shape === "text") el.classList.add("free-text");
         else if (look.shape !== "card") el.classList.add("shape", `fill-${look.fill}`);
@@ -476,7 +484,7 @@ function renderNodes(): void {
     drawOutline(el, node);
     if (isLocked(node)) el.insertAdjacentHTML("beforeend", `<div class="lock-badge" title="Locked">${icon("lock")}</div>`);
 
-    for (const side of isStroke(node) ? [] : SIDES) {
+    for (const side of isStroke(node) && !isClosed(node) ? [] : SIDES) {
       const h = document.createElement("div");
       h.className = `connect side-${side}`;
       h.dataset.side = side;
@@ -533,15 +541,19 @@ function sketched(d: string, seed: number, style: DrawingStyleName): string {
   return out;
 }
 
-/** A pen stroke: its line in its drawing style, and a wider invisible line that takes the clicks. */
+/**
+ * A pen stroke: its line in its drawing style, and a wider invisible line that takes the clicks. A custom
+ * shape adds its filled outline, smooth or, when closed from a pinned line, with straight sides.
+ */
 function renderStroke(el: HTMLElement, node: CanvasNode): void {
   el.classList.add("stroke");
   const points = strokePoints(node);
-  const d = smoothPath(points);
+  const closed = isClosed(node);
+  const d = closed && node.sharp === true ? "M " + points.map((p) => `${p.x} ${p.y}`).join(" L ") + " Z" : smoothPath(points, closed);
   const line = points.length > 1 ? sketched(d, seedOf(node.id), styleOf(node)) : d;
   const width = WIDTHS[nodeLook(node).strokeWidth];
   el.innerHTML = `<svg class="ink" viewBox="0 0 ${node.width} ${node.height}" width="${node.width}" height="${node.height}" preserveAspectRatio="none" style="--ink-width: ${width}px">
-    <path class="hit" d="${d}"/><path class="line" d="${line}"/></svg>`;
+    ${closed ? `<path class="outline" d="${d}"/>` : ""}<path class="hit" d="${d}"/><path class="line" d="${line}"/></svg>`;
 }
 
 /** The hand-drawn outline of a card or shape, redrawn when its size changes. Free text has none. */
@@ -868,19 +880,21 @@ function updateColorbar(): void {
   });
   // Text, border and shape properties, for the text and file cards they apply to. Pictures have no text to set.
   const styled = [...selection].map(nodeById).filter((n): n is CanvasNode => n?.type === "text" || n?.type === "file");
-  // Pictures and strokes have no text; a stroke's border is its width.
-  const looks = styled.filter((n) => !(n.type === "file" && isImagePath(n.file)) && !isStroke(n)).map(nodeLook);
-  const shapes = looks.filter((l) => l.shape !== "card" && l.shape !== "text");
+  // Pictures and strokes have no text; a stroke's border is its width. A custom shape has text and a fill, but no shape to pick.
+  const looks = styled.filter((n) => !(n.type === "file" && isImagePath(n.file)) && (!isStroke(n) || isClosed(n))).map(nodeLook);
+  const filled = looks.filter((l) => l.shape !== "card" && l.shape !== "text");
+  const shapes = filled.filter((l) => l.shape !== "draw");
   const bordered = styled.map(nodeLook).filter((l) => l.shape !== "text");
   props.querySelector(".border-title")!.textContent = bordered.length && bordered.every((l) => l.shape === "draw") ? "Width" : "Border";
-  props.classList.toggle("has-shapes", shapes.length > 0);
+  props.classList.toggle("has-shapes", filled.length > 0);
+  props.querySelector<HTMLElement>('[data-menu="shape"]')!.parentElement!.style.display = shapes.length ? "" : "none";
   props.classList.toggle("has-text", looks.length > 0);
   props.classList.toggle("has-border", bordered.length > 0);
   const sharedLook = <K extends keyof NodeLook>(list: NodeLook[], key: K): NodeLook[K] | undefined =>
     list.every((l) => l[key] === list[0]?.[key]) ? list[0]?.[key] : undefined;
   const lookList: Record<keyof NodeLook, NodeLook[]> = {
     shape: shapes,
-    fill: shapes,
+    fill: filled,
     strokeWidth: bordered,
     fontSize: looks,
     fontFamily: looks,
@@ -932,7 +946,7 @@ function closeHeadMenu(): void {
 
 /** Gives a new card the color and look picked last, as far as they fit it. */
 function applyNodeDefaults(node: CanvasNode): CanvasNode {
-  const { color, ...look } = pickNodeDefaults(nodeDefaults, nodeLook(node).shape);
+  const { color, ...look } = pickNodeDefaults(nodeDefaults, nodeLook(node).shape, isClosed(node));
   if (color) node.color = color;
   setNodeLook(node, look);
   return node;
@@ -949,10 +963,11 @@ function setSelectedNodeLook(look: Partial<NodeLook>): void {
     if (isLocked(node)) continue;
     const kind = nodeLook(node).shape;
     // Text settings fit every text card and note; a border not free text; shape and fill only shapes.
-    const textless = (node.type === "file" && isImagePath(node.file)) || isStroke(node);
+    const textless = (node.type === "file" && isImagePath(node.file)) || (isStroke(node) && !isClosed(node));
     const part: Partial<NodeLook> = textless ? {} : { fontSize: look.fontSize, fontFamily: look.fontFamily };
     if (kind !== "text") part.strokeWidth = look.strokeWidth;
     if (kind !== "text" && kind !== "card" && kind !== "draw") Object.assign(part, { shape: look.shape, fill: look.fill });
+    if (isClosed(node)) part.fill = look.fill;
     const given = Object.fromEntries(Object.entries(part).filter(([, v]) => v !== undefined));
     if (!Object.keys(given).length) continue;
     setNodeLook(node, given);
@@ -1224,7 +1239,7 @@ function startEditing(id: string): void {
   const el = nodeElement(id);
   if (!node || !el || isLocked(node)) return;
   if (node.type === "group") return renameGroup(id);
-  if (node.type === "file" || isStroke(node)) return;
+  if (node.type === "file" || (isStroke(node) && !isClosed(node))) return;
   editing = id;
   updateColorbar();
   const field = document.createElement("textarea");
@@ -1589,6 +1604,8 @@ function lastPin(line: Pinned): Point {
 function pinAt(e: PointerEvent, p: Point): void {
   const line = pinned!;
   const last = lastPin(line);
+  // With three pins or more, a click near the first one closes the line into a custom shape.
+  if (line.pins.length >= 2 && Math.hypot(p.x - line.start.x, p.y - line.start.y) * view.zoom <= 12) return closePinned();
   if (Math.hypot(p.x - last.x, p.y - last.y) * view.zoom <= PIN_PX) return endPinned();
   const card = nodeUnder(e.clientX, e.clientY);
   line.pins.push({ at: card ? p : freeEndAt(last, p, e), card });
@@ -1618,6 +1635,20 @@ function endPinned(): void {
   const card = end.card && end.card.id !== line.from?.id ? end.card : undefined;
   const b = drawnEnd(card, end.at, bends[bends.length - 1] ?? from);
   addDrawnEdge(a, b, line.heads, bends);
+}
+
+/** Turns the open line into a custom shape with straight sides, through its pins and back to its start. No connection. */
+function closePinned(): void {
+  const line = pinned!;
+  dropPinned();
+  pinnedEndedAt = performance.now();
+  const { box, points } = strokeBox([line.start, ...line.pins.map((pin) => pin.at), line.start]);
+  const node: CanvasNode = { id: newId(), type: "text", text: "", shape: "draw", sharp: true, ...box };
+  setStrokePoints(node, points);
+  setClosed(node, true);
+  applyNodeDefaults(node);
+  setTool(SELECT);
+  addNode(node);
 }
 
 /** Drops the open line without making anything. */
@@ -2093,9 +2124,14 @@ function endDrag(e: PointerEvent): void {
     }
     case "pen": {
       d.preview.remove();
-      const { box, points } = strokeBox(simplify(d.points, 0.5 / view.zoom));
+      const drawn = simplify(d.points, 0.5 / view.zoom);
+      // Ends that meet close the stroke into a custom shape: the last point joins the first.
+      const closed = closes(drawn, 12 / view.zoom, 16 / view.zoom);
+      if (closed) drawn[drawn.length - 1] = { ...drawn[0]! };
+      const { box, points } = strokeBox(drawn);
       const node: CanvasNode = { id: newId(), type: "text", text: "", shape: "draw", ...box };
       setStrokePoints(node, points);
+      setClosed(node, closed);
       applyNodeDefaults(node);
       // The pen stays: each stroke is its own card and its own undo step.
       data.nodes.push(node);

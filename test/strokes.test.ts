@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CanvasNode } from "../src/jsonCanvas";
-import { hitStroke, scalePoints, simplify, smoothPath, strokeBox, strokesTouched } from "../webview/strokes";
+import { closes, hitInside, hitStroke, scalePoints, simplify, smoothPath, strokeBox, strokesTouched } from "../webview/strokes";
 
 const stroke = (points: number[], more: Partial<CanvasNode> = {}): CanvasNode =>
   ({ id: "s", type: "text", text: "", shape: "draw", x: 100, y: 100, width: 100, height: 100, points, ...more }) as CanvasNode;
@@ -101,7 +101,38 @@ describe("strokesTouched", () => {
       card("group", { type: "group" }),
       card("point", { shape: "point", x: 150, y: 150, width: 1, height: 1 }),
       stroke([0, 50, 100, 50], { id: "locked", locked: true }),
+      stroke([0, 50, 100, 50, 50, 0, 0, 50], { id: "written", closed: true, text: "Hi" }),
     ];
     expect(strokesTouched(others, [{ x: 150, y: 100 }, { x: 150, y: 200 }], 8)).toEqual([]);
+  });
+});
+
+describe("closes", () => {
+  const ring = (gap: number, size = 100) => [{ x: 0, y: 0 }, { x: size, y: 0 }, { x: size, y: size }, { x: gap, y: 0 }];
+
+  it("closes when the end comes back within the tolerance of the start", () => {
+    expect(closes(ring(10), 12, 16)).toBe(true);
+    expect(closes(ring(20), 12, 16)).toBe(false);
+  });
+
+  it("does not close a stroke smaller than the least size", () => {
+    expect(closes(ring(2, 10), 12, 16)).toBe(false);
+    expect(closes(ring(2, 16), 12, 16)).toBe(true);
+  });
+});
+
+describe("hitInside", () => {
+  // A triangle with its corners at the box's top left, top right and bottom left.
+  const triangle = stroke([0, 0, 100, 0, 0, 100, 0, 0], { closed: true });
+
+  it("hits inside the outline and misses outside it", () => {
+    expect(hitInside(triangle, { x: 120, y: 120 })).toBe(true);
+    expect(hitInside(triangle, { x: 180, y: 180 })).toBe(false);
+  });
+
+  it("honours the turn", () => {
+    const turned = { ...triangle, rotation: 180 };
+    expect(hitInside(turned, { x: 120, y: 120 })).toBe(false);
+    expect(hitInside(turned, { x: 180, y: 180 })).toBe(true);
   });
 });

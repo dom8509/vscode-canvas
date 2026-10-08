@@ -1,7 +1,7 @@
 // Pen strokes: smoothing, their box, and hitting them. A stroke's points are
 // relative to its box; the box is the node's x, y, width and height.
 
-import { type CanvasNode, isLocked, isStroke, rotationOf, strokePoints } from "../src/jsonCanvas";
+import { type CanvasNode, isClosed, isLocked, isStroke, rotationOf, strokePoints } from "../src/jsonCanvas";
 import { type Point, type Rect, center, rotatePoint } from "./geometry";
 
 /** The points of a line with the ones within `tolerance` of it dropped (Ramer–Douglas–Peucker). The ends stay. */
@@ -28,21 +28,27 @@ export function simplify(points: Point[], tolerance: number): Point[] {
   return points.filter((_, k) => keep[k]);
 }
 
-/** SVG path data of a smooth line through every point (Catmull-Rom as cubic Béziers). One point is a dot. */
-export function smoothPath(points: Point[]): string {
+/**
+ * SVG path data of a smooth line through every point (Catmull-Rom as cubic Béziers). One point is a
+ * dot. A `closed` line, whose last point is its first, runs on smoothly through the join and ends in Z.
+ */
+export function smoothPath(points: Point[], closed = false): string {
   const r = (v: number) => Math.round(v * 100) / 100;
   const a = points[0];
   if (!a) return "";
   if (points.length === 1) return `M ${r(a.x)} ${r(a.y)} L ${r(a.x)} ${r(a.y)}`;
   let d = `M ${r(a.x)} ${r(a.y)}`;
-  for (let i = 0; i < points.length - 1; i++) {
-    const p0 = points[i - 1] ?? points[i]!;
+  const n = points.length;
+  // Around a closed line the neighbours wrap, skipping the repeated first point.
+  const at = (k: number) => (closed && n > 3 ? points[(((k % (n - 1)) + (n - 1)) % (n - 1))]! : points[Math.max(0, Math.min(n - 1, k))]!);
+  for (let i = 0; i < n - 1; i++) {
+    const p0 = at(i - 1);
     const p1 = points[i]!;
     const p2 = points[i + 1]!;
-    const p3 = points[i + 2] ?? p2;
+    const p3 = at(i + 2);
     d += ` C ${r(p1.x + (p2.x - p0.x) / 6)} ${r(p1.y + (p2.y - p0.y) / 6)}, ${r(p2.x - (p3.x - p1.x) / 6)} ${r(p2.y - (p3.y - p1.y) / 6)}, ${r(p2.x)} ${r(p2.y)}`;
   }
-  return d;
+  return closed ? `${d} Z` : d;
 }
 
 /** The box around a stroke drawn in canvas coordinates, at least one pixel each way, and its points relative to the box. */
@@ -78,11 +84,35 @@ export function hitStroke(node: CanvasNode, p: Point, tolerance: number): boolea
   return false;
 }
 
+/** Whether a stroke's end came back within `tolerance` of its start, and its box is at least `minSize` on its longer side. */
+export function closes(points: Point[], tolerance: number, minSize: number): boolean {
+  const a = points[0];
+  const b = points[points.length - 1];
+  if (!a || !b || points.length < 3) return false;
+  const xs = points.map((p) => p.x);
+  const ys = points.map((p) => p.y);
+  const size = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
+  return Math.hypot(b.x - a.x, b.y - a.y) <= tolerance && size >= minSize;
+}
+
+/** Whether `p` lies inside a custom shape's outline. */
+export function hitInside(node: CanvasNode, p: Point): boolean {
+  const points = worldPoints(node);
+  let inside = false;
+  for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+    const a = points[i]!;
+    const b = points[j]!;
+    if (a.y > p.y !== b.y > p.y && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+  }
+  return inside;
+}
+
 /** The ids of the unlocked strokes that the pointer's path (one point, or the segments between points) passes within `tolerance` of. */
 export function strokesTouched(nodes: CanvasNode[], path: Point[], tolerance: number): string[] {
   const segments: [Point, Point][] = path.length === 1 ? [[path[0]!, path[0]!]] : path.slice(1).map((p, i) => [path[i]!, p]);
   return nodes
-    .filter((n) => isStroke(n) && !isLocked(n))
+    // A custom shape someone wrote in is kept.
+    .filter((n) => isStroke(n) && !isLocked(n) && !(isClosed(n) && n.type === "text" && n.text.trim()))
     .filter((n) => {
       const points = worldPoints(n);
       const lines: [Point, Point][] = points.length === 1 ? [[points[0]!, points[0]!]] : points.slice(1).map((p, i) => [points[i]!, p]);

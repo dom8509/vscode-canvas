@@ -6,6 +6,7 @@ import {
   cssColor,
   isImagePath,
   isLocked,
+  isClosed,
   isPoint,
   isStroke,
   newId,
@@ -17,6 +18,7 @@ import {
   rebind,
   serializeCanvas,
   setBends,
+  setClosed,
   setLocked,
   setNodeLook,
   setStrokePoints,
@@ -319,5 +321,28 @@ describe("strokes", () => {
     expect(nodeLook(s).shape).toBe("draw");
     setNodeLook(s, { strokeWidth: "bold" });
     expect(s).toMatchObject({ shape: "draw", strokeWidth: "bold" });
+  });
+});
+
+describe("custom shapes", () => {
+  const stroke = (): CanvasNode => ({ id: "s", type: "text", text: "", shape: "draw", x: 0, y: 0, width: 30, height: 40, points: [0, 0, 30, 40, 0, 0] });
+
+  it("marks a closed stroke, and leaves an open one unmarked", () => {
+    const s = stroke();
+    expect(isClosed(s)).toBe(false);
+    setClosed(s, true);
+    expect(s.closed).toBe(true);
+    expect(isClosed(s)).toBe(true);
+    setClosed(s, false);
+    expect("closed" in s).toBe(false);
+  });
+
+  it("has no fill by default, and keeps a light fill in the file", () => {
+    const s = stroke();
+    expect(nodeLook(s).fill).toBe("none");
+    setNodeLook(s, { fill: "semi" });
+    expect(s.fill).toBe("semi");
+    setNodeLook(s, { fill: "none" });
+    expect("fill" in s).toBe(false);
   });
 });

@@ -67,6 +67,8 @@ Obsidian shows all three as plain text cards.
 
 **Stroke**: one line drawn with the pen: an empty text node with `"shape": "draw"`, its box as `x`, `y`, `width`, `height`, and `"points"` relative to the box. It moves, resizes and turns like a card; only its line takes clicks. Obsidian shows an empty card. Not the **stroke width**, which is the thickness of a line. Code: `isStroke`, `strokePoints`.
 
+**Custom shape**: a stroke whose ends met, or a pinned line closed at its first pin (`"sharp": true`, straight sides). Saved with `"closed": true`. It keeps its outline and works like a shape: fill, text, connection dots. Obsidian shows a text card with its text. Code: `isClosed`, `setClosed`.
+
 **Text scale**: how much bigger free text is drawn after being scaled by a corner handle. Saved as `textScale`.
 
 ## Editor
