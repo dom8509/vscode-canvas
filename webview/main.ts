@@ -25,12 +25,15 @@ import {
   isImageFile,
   isLocked,
   isPoint,
+  isStroke,
   pointNodeAt,
   pointsOfEdges,
   prunePoints,
   rebind,
   setBends,
   setLocked,
+  setStrokePoints,
+  strokePoints,
   isImagePath,
   isTextPath,
   newId,
@@ -85,6 +88,7 @@ import {
   setDrawingStyle,
 } from "./drawingStyles";
 import { sketchPath } from "./sketch";
+import { scalePoints, simplify, smoothPath, strokeBox } from "./strokes";
 import { escapeHtml, renderMarkdown, stripFrontMatter } from "./markdown";
 import { defaultShapeSize, shapeMarks, shapePath } from "./shapes";
 import { icon, shapeIcon, title } from "./icons";
@@ -156,6 +160,7 @@ app.innerHTML = `
       <div id="groups"></div>
       <svg id="edges"></svg>
       <div id="nodes"></div>
+      <svg id="ink"></svg>
       <div id="labels"></div>
       <div id="selection-box" hidden></div>
       <svg id="guides"></svg>
@@ -240,6 +245,8 @@ const nodesLayer = document.getElementById("nodes")!;
 const edgesLayer = document.getElementById("edges") as unknown as SVGSVGElement;
 const labelsLayer = document.getElementById("labels")!;
 const guidesLayer = document.getElementById("guides") as unknown as SVGSVGElement;
+/** The live line of the pen, above the cards. */
+const inkLayer = document.getElementById("ink") as unknown as SVGSVGElement;
 const selectionBox = document.getElementById("selection-box")!;
 const marquee = document.getElementById("marquee")!;
 const errorBox = document.getElementById("error")!;
@@ -376,6 +383,8 @@ document.addEventListener("visibilitychange", () => nudges.flush());
 
 function applyView(): void {
   world.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`;
+  // One screen pixel in canvas units, for hit areas that stay the same size on screen.
+  world.style.setProperty("--screen-px", `${1 / view.zoom}px`);
   viewport.style.backgroundPosition = `${view.x}px ${view.y}px`;
   viewport.style.backgroundSize = `${GRID * view.zoom}px ${GRID * view.zoom}px`;
   viewport.classList.toggle("far", view.zoom < 0.5);
@@ -438,6 +447,9 @@ function renderNodes(): void {
     if (node.type === "group") {
       renderGroup(el, node);
       groupsLayer.append(el);
+    } else if (isStroke(node)) {
+      renderStroke(el, node);
+      nodesLayer.append(el);
     } else {
       const body = document.createElement("div");
       body.className = "content";
@@ -464,7 +476,7 @@ function renderNodes(): void {
     drawOutline(el, node);
     if (isLocked(node)) el.insertAdjacentHTML("beforeend", `<div class="lock-badge" title="Locked">${icon("lock")}</div>`);
 
-    for (const side of SIDES) {
+    for (const side of isStroke(node) ? [] : SIDES) {
       const h = document.createElement("div");
       h.className = `connect side-${side}`;
       h.dataset.side = side;
@@ -499,11 +511,42 @@ function placeNode(el: HTMLElement, node: CanvasNode): void {
   if (scale !== 1) el.style.setProperty("--text-scale", String(scale));
   else el.style.removeProperty("--text-scale");
   if (el.dataset.drawn) drawOutline(el, node);
+  // While a stroke is resized its line stretches with the box; its points are rewritten on release.
+  const ink = el.querySelector(":scope > .ink");
+  if (ink) {
+    ink.setAttribute("width", String(node.width));
+    ink.setAttribute("height", String(node.height));
+  }
+}
+
+/** Rough.js paths by seed, style and path data: a canvas full of strokes is redrawn on every commit. */
+const sketches = new Map<string, string>();
+
+function sketched(d: string, seed: number, style: DrawingStyleName): string {
+  const key = `${seed} ${style} ${d}`;
+  let out = sketches.get(key);
+  if (out === undefined) {
+    if (sketches.size > 5000) sketches.clear();
+    out = sketchPath(d, seed, style);
+    sketches.set(key, out);
+  }
+  return out;
+}
+
+/** A pen stroke: its line in its drawing style, and a wider invisible line that takes the clicks. */
+function renderStroke(el: HTMLElement, node: CanvasNode): void {
+  el.classList.add("stroke");
+  const points = strokePoints(node);
+  const d = smoothPath(points);
+  const line = points.length > 1 ? sketched(d, seedOf(node.id), styleOf(node)) : d;
+  const width = WIDTHS[nodeLook(node).strokeWidth];
+  el.innerHTML = `<svg class="ink" viewBox="0 0 ${node.width} ${node.height}" width="${node.width}" height="${node.height}" preserveAspectRatio="none" style="--ink-width: ${width}px">
+    <path class="hit" d="${d}"/><path class="line" d="${line}"/></svg>`;
 }
 
 /** The hand-drawn outline of a card or shape, redrawn when its size changes. Free text has none. */
 function drawOutline(el: HTMLElement, node: CanvasNode): void {
-  if (el.classList.contains("free-text")) return;
+  if (el.classList.contains("free-text") || el.classList.contains("stroke")) return;
   const shaped = el.classList.contains("shape");
   const shape = (shaped ? nodeLook(node).shape : "rectangle") as ShapeKind;
   const { width: w, height: h } = node;
@@ -826,7 +869,7 @@ function updateColorbar(): void {
   // Text, border and shape properties, for the text and file cards they apply to. Pictures have no text to set.
   const styled = [...selection].map(nodeById).filter((n): n is CanvasNode => n?.type === "text" || n?.type === "file");
   const looks = styled.filter((n) => !(n.type === "file" && isImagePath(n.file))).map(nodeLook);
-  const shapes = looks.filter((l) => l.shape !== "card" && l.shape !== "text");
+  const shapes = looks.filter((l) => l.shape !== "card" && l.shape !== "text" && l.shape !== "draw");
   const bordered = styled.map(nodeLook).filter((l) => l.shape !== "text");
   props.classList.toggle("has-shapes", shapes.length > 0);
   props.classList.toggle("has-text", looks.length > 0);
@@ -906,7 +949,7 @@ function setSelectedNodeLook(look: Partial<NodeLook>): void {
     // Text settings fit every text card and note; a border not free text; shape and fill only shapes.
     const part: Partial<NodeLook> = node.type === "file" && isImagePath(node.file) ? {} : { fontSize: look.fontSize, fontFamily: look.fontFamily };
     if (kind !== "text") part.strokeWidth = look.strokeWidth;
-    if (kind !== "text" && kind !== "card") Object.assign(part, { shape: look.shape, fill: look.fill });
+    if (kind !== "text" && kind !== "card" && kind !== "draw") Object.assign(part, { shape: look.shape, fill: look.fill });
     const given = Object.fromEntries(Object.entries(part).filter(([, v]) => v !== undefined));
     if (!Object.keys(given).length) continue;
     setNodeLook(node, given);
@@ -1178,7 +1221,7 @@ function startEditing(id: string): void {
   const el = nodeElement(id);
   if (!node || !el || isLocked(node)) return;
   if (node.type === "group") return renameGroup(id);
-  if (node.type === "file") return;
+  if (node.type === "file" || isStroke(node)) return;
   editing = id;
   updateColorbar();
   const field = document.createElement("textarea");
@@ -1320,6 +1363,8 @@ type Drag =
   /** The arrow or line tool: from a pointer down on a card or the canvas. `drawing` once it moved 10 screen pixels. */
   | { kind: "edge"; start: Point; from: CanvasNode | undefined; client: Point; drawing: boolean; heads: "arrow" | "line"; preview: SVGPathElement }
   | { kind: "draw"; start: Point; shape: ShapeKind; preview: HTMLElement }
+  /** The pen: the pointer's path in canvas coordinates. */
+  | { kind: "pen"; points: Point[]; preview: SVGPathElement }
   | { kind: "text"; start: Point };
 
 let drag: Drag | null = null;
@@ -1584,6 +1629,17 @@ function startPlacing(e: PointerEvent, p: Point): void {
     viewport.setPointerCapture(e.pointerId);
     return;
   }
+  if (tool.kind === "pen") {
+    const preview = document.createElementNS(SVG_NS, "path");
+    preview.classList.add("pen-preview");
+    const color = cssColor(nodeDefaults.color);
+    if (color) preview.style.stroke = color;
+    preview.style.strokeWidth = `${WIDTHS[nodeDefaults.strokeWidth ?? "normal"]}px`;
+    inkLayer.append(preview);
+    drag = { kind: "pen", points: [p], preview };
+    viewport.setPointerCapture(e.pointerId);
+    return;
+  }
   if (tool.kind === "connection" && pinned) return pinAt(e, p);
   if (tool.kind === "connection") {
     const preview = document.createElementNS(SVG_NS, "path");
@@ -1783,9 +1839,10 @@ viewport.addEventListener("pointermove", (e) => {
         }
       }
       showGuides(guides);
-      w = Math.max(freeText ? 30 : 60, w);
+      // A stroke can be as thin as a line.
+      w = Math.max(isStroke(n) ? 1 : freeText ? 30 : 60, w);
       // Free text is never cut off: it is at least as tall as its wrapped text.
-      const minH = isFreeText(n) ? measureText(n, renderMarkdown(n.text), w).height : 40;
+      const minH = isFreeText(n) ? measureText(n, renderMarkdown(n.text), w).height : isStroke(n) ? 1 : 40;
       h = Math.max(minH, h);
       const corner = resizedCorner(drag.anchor, w, h, dx, dy, turn);
       Object.assign(n, { width: w, height: h, x: corner.x, y: corner.y });
@@ -1801,6 +1858,12 @@ viewport.addEventListener("pointermove", (e) => {
       const el = nodeElement(drag.node.id);
       if (el) placeNode(el, drag.node);
       redrawEdgesOf(new Set([drag.node.id]));
+      break;
+    }
+    case "pen": {
+      // Every point the pointer passed, not only the ones this event reports.
+      for (const ev of e.getCoalescedEvents?.() ?? [e]) drag.points.push(toWorld(ev.clientX, ev.clientY));
+      drag.preview.setAttribute("d", smoothPath(drag.points));
       break;
     }
     case "draw": {
@@ -1970,6 +2033,7 @@ function endDrag(e: PointerEvent): void {
         commit();
       } else if (d.node.width !== d.width || d.node.height !== d.height) {
         if (isFreeText(d.node) && d.node.width !== d.width) d.node.autoSize = false;
+        if (isStroke(d.node)) setStrokePoints(d.node, scalePoints(strokePoints(d.node), d, d.node));
         commit();
       }
       break;
@@ -1984,6 +2048,7 @@ function endDrag(e: PointerEvent): void {
     case "resize-many":
       if (!d.changed) break;
       for (const { node, rect } of d.items) {
+        if (isStroke(node)) setStrokePoints(node, scalePoints(strokePoints(node), rect, node));
         if (!isFreeText(node)) continue;
         // Stretched more one way than the other, it keeps its new width and wraps, as after a single resize.
         if (Math.abs(node.width / rect.width - node.height / rect.height) > 0.01) node.autoSize = false;
@@ -1991,6 +2056,16 @@ function endDrag(e: PointerEvent): void {
       }
       commit();
       break;
+    case "pen": {
+      d.preview.remove();
+      const { box, points } = strokeBox(simplify(d.points, 0.5 / view.zoom));
+      const node: CanvasNode = { id: newId(), type: "text", text: "", shape: "draw", ...box };
+      setStrokePoints(node, points);
+      // The pen stays: each stroke is its own card and its own undo step.
+      data.nodes.push(node);
+      commit();
+      break;
+    }
     case "draw": {
       d.preview.remove();
       let r = drawRect(d.start, p, e.altKey);
@@ -2155,6 +2230,8 @@ document.addEventListener("keydown", (e) => {
     setTool({ kind: "hand" });
   } else if (is("text")) {
     setTool({ kind: "text" });
+  } else if (is("pen")) {
+    setTool({ kind: "pen" });
   } else if (is("arrow") || is("line")) {
     setTool({ kind: "connection", heads: is("arrow") ? "arrow" : "line" });
   } else if (is("rectangle") || is("ellipse")) {
@@ -2474,6 +2551,8 @@ app.addEventListener("click", (e) => {
       return setTool(SELECT);
     case "hand":
       return setTool(tool.kind === "hand" ? SELECT : { kind: "hand" });
+    case "pen-tool":
+      return setTool(tool.kind === "pen" ? SELECT : { kind: "pen" });
     case "arrow-tool":
     case "line-tool": {
       const heads = button.dataset.action === "arrow-tool" ? "arrow" : "line";

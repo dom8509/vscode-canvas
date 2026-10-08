@@ -11,7 +11,7 @@ open format Obsidian uses, so the files work in both.
 - **Tools:** the bottom toolbar holds the tools, each with its key in the
   corner of its button: select (**V**), hand (**H**: drag to pan), text
   (**T**), shapes (**R** rectangle, **O** ellipse), arrow (**A**), line
-  (**L**), card (**N**) and group (**G**). **Escape** closes an open menu or panel first; otherwise it goes
+  (**L**), pen (**P**), card (**N**) and group (**G**). **Escape** closes an open menu or panel first; otherwise it goes
   back to the select tool, or clears the selection when that is on already. No key fires while you type.
 - **Keys:** press **?**, or the *?* button at the top right, for a list of
   every key. **Escape** or the button closes it. An empty canvas says how to
@@ -83,6 +83,12 @@ open format Obsidian uses, so the files work in both.
   line. A bent connection is curved through its bends, or straight from bend
   to bend for the straight and right-angled path styles. Obsidian draws it
   straight from end to end.
+- **Pen:** pick the pen (**P**) and draw. Each stroke is smoothed, is its own
+  element and its own undo step; the pen stays on until **Escape**. Click a
+  stroke's line to select it (a click inside a loop reaches what lies under
+  it); then move, resize, turn, group, lock, copy or delete it like a card.
+  A stroke is saved as an empty card the size of the stroke with its points
+  in it, so Obsidian shows an empty card there.
 - **End handles:** a selected connection shows a round handle at each end.
   Drag one onto another card to join it there, or onto empty space to leave
   that end free. Each bend has a small square: drag it to move the bend. A
@@ -104,8 +110,9 @@ open format Obsidian uses, so the files work in both.
   sets it for all canvases; the wavy-line button at the top right sets it for
   one canvas (`"style"` at the top of the file); the *Style* row in the
   properties panel sets it for single cards and connections (`"style"` on
-  them). The most specific one wins. The data stays the same: only the
-  drawing changes, and each element looks the same on every redraw.
+  them). The most specific one wins. Pen strokes follow the drawing style
+  too. The data stays the same: only the drawing changes, and each element
+  looks the same on every redraw.
 - **Properties:** select cards or connections and a panel on the left shows
   their properties, as in Excalidraw and tldraw: one of six colors or a custom one, and
   for connections the line and arrow styles below. New cards, shapes and

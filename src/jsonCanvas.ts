@@ -293,8 +293,8 @@ export const FONT_FAMILIES: FontFamily[] = ["sans", "serif", "mono", "hand"];
  * Obsidian card. Its font size is undefined until set: it keeps the editor's size.
  */
 export interface NodeLook {
-  /** "point" is the hidden node of a free end; it has no look to set. */
-  shape: ShapeKind | "text" | "card" | "point";
+  /** "point" is the hidden node of a free end; it has no look to set. "draw" is a pen stroke. */
+  shape: ShapeKind | "text" | "card" | "point" | "draw";
   fill: Fill;
   fontSize: FontSize | undefined;
   fontFamily: FontFamily;
@@ -304,7 +304,7 @@ export interface NodeLook {
 
 export function nodeLook(node: CanvasNode): NodeLook {
   const shape =
-    node.type !== "text" ? "card" : node.shape === "text" || node.shape === "point" ? node.shape : oneOf(SHAPES, node.shape, "card" as ShapeKind);
+    node.type !== "text" ? "card" : node.shape === "text" || node.shape === "point" || node.shape === "draw" ? node.shape : oneOf(SHAPES, node.shape, "card" as ShapeKind);
   const size = FONT_SIZES.includes(node.fontSize as FontSize) ? (node.fontSize as FontSize) : undefined;
   return {
     shape: shape as NodeLook["shape"],
@@ -437,15 +437,40 @@ export function rebind(data: CanvasData, edgeId: string, end: "from" | "to", tar
 
 /** The bends of a connection, or none when the list is missing or broken. */
 export function bendsOf(edge: CanvasEdge): { x: number; y: number }[] {
-  const b = edge.bends;
-  if (!Array.isArray(b) || b.length % 2 !== 0 || !b.every((v) => typeof v === "number" && Number.isFinite(v))) return [];
-  const out: { x: number; y: number }[] = [];
-  for (let i = 0; i < b.length; i += 2) out.push({ x: b[i] as number, y: b[i + 1] as number });
-  return out;
+  return pairs(edge.bends);
 }
 
 export function setBends(edge: CanvasEdge, points: { x: number; y: number }[]): void {
-  const round = (v: number) => Math.round(v * 10) / 10;
-  if (points.length) edge.bends = points.flatMap((p) => [round(p.x), round(p.y)]);
+  if (points.length) edge.bends = flat(points);
   else delete edge.bends;
+}
+
+/** A flat list `[x1, y1, x2, y2, …]` as points, or none when it is missing or broken. */
+function pairs(list: unknown): { x: number; y: number }[] {
+  if (!Array.isArray(list) || list.length % 2 !== 0 || !list.every((v) => typeof v === "number" && Number.isFinite(v))) return [];
+  const out: { x: number; y: number }[] = [];
+  for (let i = 0; i < list.length; i += 2) out.push({ x: list[i] as number, y: list[i + 1] as number });
+  return out;
+}
+
+/** Points as a flat list, rounded to one decimal. */
+function flat(points: { x: number; y: number }[]): number[] {
+  const round = (v: number) => Math.round(v * 10) / 10 || 0;
+  return points.flatMap((p) => [round(p.x), round(p.y)]);
+}
+
+// ---------------------------------------------------------------- strokes
+// A pen stroke is an empty text node with `"shape": "draw"`, its bounding box,
+// and its points relative to the box's top left. Obsidian shows an empty card.
+
+export function isStroke(node: CanvasNode): boolean {
+  return node.type === "text" && node.shape === "draw";
+}
+
+export function strokePoints(node: CanvasNode): { x: number; y: number }[] {
+  return pairs(node.points);
+}
+
+export function setStrokePoints(node: CanvasNode, points: { x: number; y: number }[]): void {
+  node.points = flat(points);
 }

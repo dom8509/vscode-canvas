@@ -65,6 +65,8 @@ Obsidian shows all three as plain text cards.
 
 **Turn**: a card's rotation, clockwise in degrees, set with the turn handle. Saved as `rotation`.
 
+**Stroke**: one line drawn with the pen: an empty text node with `"shape": "draw"`, its box as `x`, `y`, `width`, `height`, and `"points"` relative to the box. It moves, resizes and turns like a card; only its line takes clicks. Obsidian shows an empty card. Not the **stroke width**, which is the thickness of a line. Code: `isStroke`, `strokePoints`.
+
 **Text scale**: how much bigger free text is drawn after being scaled by a corner handle. Saved as `textScale`.
 
 ## Editor
@@ -83,4 +85,4 @@ Obsidian shows all three as plain text cards.
 
 **Bottom toolbar**: the row of buttons that picks a tool and adds cards, shapes, text, files, images, links and groups.
 
-**Tool**: what a press on the canvas does. Code: `Tool`. The **select tool** (V) selects, moves and resizes; the **hand tool** (H) pans with a left drag; the text and shape tools place free text and shapes. The **arrow tool** (A) and the **line tool** (L) draw connections anywhere, with an arrow head at the end or none. Code: `{ kind: "connection" }`.
+**Tool**: what a press on the canvas does. Code: `Tool`. The **select tool** (V) selects, moves and resizes; the **hand tool** (H) pans with a left drag; the text and shape tools place free text and shapes. The **pen** (P) draws strokes. The **arrow tool** (A) and the **line tool** (L) draw connections anywhere, with an arrow head at the end or none. Code: `{ kind: "connection" }`.

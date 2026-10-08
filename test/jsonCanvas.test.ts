@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   type CanvasData,
+  type CanvasNode,
   bendsOf,
   cssColor,
   isImagePath,
   isLocked,
   isPoint,
+  isStroke,
   newId,
   nodeLook,
   parseCanvas,
@@ -17,6 +19,8 @@ import {
   setBends,
   setLocked,
   setNodeLook,
+  setStrokePoints,
+  strokePoints,
 } from "../src/jsonCanvas";
 
 describe("parseCanvas", () => {
@@ -288,5 +292,32 @@ describe("pointsOfEdges", () => {
   it("skips locked connections for a move, and keeps them for a copy", () => {
     expect(pointsOfEdges(data, ["locked"], true)).toEqual([]);
     expect(pointsOfEdges(data, ["locked"]).map((n) => n.id)).toEqual([p2.id, p3.id]);
+  });
+});
+
+describe("strokes", () => {
+  const stroke = (): CanvasNode => ({ id: "s", type: "text", text: "", shape: "draw", x: 10, y: 20, width: 30, height: 40 });
+
+  it("saves points as a flat list relative to the box, rounded to one decimal", () => {
+    const s = stroke();
+    setStrokePoints(s, [{ x: 0, y: 0.04 }, { x: 29.96, y: 40 }]);
+    expect(s.points).toEqual([0, 0, 30, 40]);
+    expect(strokePoints(s)).toEqual([{ x: 0, y: 0 }, { x: 30, y: 40 }]);
+    expect(isStroke(s)).toBe(true);
+    expect(isStroke({ ...stroke(), shape: "rectangle" })).toBe(false);
+  });
+
+  it("keeps a stroke through a round trip", () => {
+    const s = stroke();
+    setStrokePoints(s, [{ x: 0, y: 0 }, { x: 30, y: 40 }]);
+    const text = serializeCanvas({ nodes: [{ ...s, color: "4", strokeWidth: "bold", style: "architect" }], edges: [] });
+    expect(serializeCanvas(parseCanvas(text))).toBe(text);
+  });
+
+  it("stays a stroke when its width is set", () => {
+    const s = stroke();
+    expect(nodeLook(s).shape).toBe("draw");
+    setNodeLook(s, { strokeWidth: "bold" });
+    expect(s).toMatchObject({ shape: "draw", strokeWidth: "bold" });
   });
 });

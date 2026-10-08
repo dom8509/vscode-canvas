@@ -134,6 +134,71 @@ button {
   pointer-events: none;
 }
 
+#ink {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.pen-preview {
+  fill: none;
+  stroke: var(--edge);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* A pen stroke: only its line takes clicks, so a click inside its box reaches what lies under it. */
+.node.stroke,
+.node.stroke.colored {
+  background: none;
+  pointer-events: none;
+  --shape-stroke: var(--edge);
+}
+
+.node.stroke.colored {
+  --shape-stroke: var(--node-color);
+}
+
+.node.stroke > .resize,
+.node.stroke > .rotate,
+.node.stroke > .lock-badge {
+  pointer-events: auto;
+}
+
+/* A stroke's line runs along its box, so its handles only take clicks once it is selected. */
+.node.stroke:not(.selected) > .resize {
+  display: none;
+}
+
+.ink {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: visible;
+}
+
+.ink path {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.ink .line {
+  stroke: var(--shape-stroke);
+  stroke-width: var(--ink-width);
+}
+
+.ink .hit {
+  stroke: transparent;
+  stroke-width: calc(var(--ink-width) + 12 * var(--screen-px, 1px));
+  pointer-events: stroke;
+}
+
 #guides line {
   stroke: #e03131;
   stroke-width: var(--guide-width, 1px);

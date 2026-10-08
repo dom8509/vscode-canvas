@@ -30,6 +30,7 @@ export function icon(name: string): string {
     redo: '<path d="m15 14 5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h3"/>',
     arrow: '<path d="M5 19 19 5M10 5h9v9"/>',
     line: '<path d="M5 19 19 5"/>',
+    pen: '<path d="M4 20c2-1 3-3 5-3s2 2 4 1 2-4 4-5"/><path d="m14 4 3 3-7 7H7v-3z"/>',
     select: '<path d="M6 3l12 9-5.5 1.2L16 20l-2.5 1-2.6-6.6L6 18z"/>',
     hand: '<path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V11M11 10V4.5a1.5 1.5 0 0 1 3 0V11M14 10.5V6a1.5 1.5 0 0 1 3 0v8a7 7 0 0 1-7 7h-.5a6 6 0 0 1-4.6-2.2L3 15.6a1.5 1.5 0 0 1 2.3-1.9L8 16"/>',
     help: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6M12 17h.01"/>',
