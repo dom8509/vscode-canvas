@@ -10,6 +10,7 @@ import {
   parseCanvas,
   pointNodeAt,
   prunePoints,
+  rebind,
   serializeCanvas,
   setLocked,
   setNodeLook,
@@ -175,5 +176,50 @@ describe("points", () => {
     const before = { ...p };
     setNodeLook(p, { shape: "rectangle", fontSize: "l", strokeWidth: "bold" });
     expect(p).toEqual(before);
+  });
+});
+
+describe("rebind", () => {
+  const card = (id: string, x: number) => ({ id, type: "text" as const, text: "", x, y: 0, width: 100, height: 50 });
+  const setup = () => {
+    const free = pointNodeAt({ x: 500, y: 25 });
+    const data: CanvasData = {
+      nodes: [card("a", 0), card("b", 300), free],
+      edges: [{ id: "e", fromNode: "a", fromSide: "right", toNode: free.id }],
+    };
+    return { data, free };
+  };
+
+  it("binds a free end to a card; the old point goes on the next prune", () => {
+    const { data, free } = setup();
+    expect(rebind(data, "e", "to", { node: "b", side: "left" })).toBe(true);
+    expect(data.edges[0]).toMatchObject({ toNode: "b", toSide: "left" });
+    prunePoints(data);
+    expect(data.nodes.some((n) => n.id === free.id)).toBe(false);
+  });
+
+  it("makes a new point when dropped on empty space", () => {
+    const { data } = setup();
+    expect(rebind(data, "e", "from", { at: { x: -200, y: 10 } })).toBe(true);
+    const point = data.nodes.find((n) => n.id === data.edges[0]!.fromNode)!;
+    expect(isPoint(point)).toBe(true);
+    expect(point).toMatchObject({ x: -200.5, y: 9.5 });
+    expect(data.edges[0]!.fromSide).toBeUndefined();
+  });
+
+  it("changes nothing when dropped on the card at the other end", () => {
+    const { data } = setup();
+    data.edges[0]!.toNode = "b";
+    const before = structuredClone(data);
+    expect(rebind(data, "e", "from", { node: "b", side: "top" })).toBe(false);
+    expect(data).toEqual(before);
+  });
+
+  it("changes nothing on a locked connection", () => {
+    const { data } = setup();
+    data.edges[0]!.locked = true;
+    const before = structuredClone(data);
+    expect(rebind(data, "e", "to", { node: "b", side: "left" })).toBe(false);
+    expect(data).toEqual(before);
   });
 });

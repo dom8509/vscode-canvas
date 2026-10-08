@@ -74,6 +74,9 @@ open format Obsidian uses, so the files work in both.
   both take the line style you picked last. Then the select tool comes back
   with the new connection selected. A free end is saved as a tiny empty card,
   so the file stays JSON Canvas: Obsidian shows that tiny card at the end.
+- **End handles:** a selected connection shows a round handle at each end.
+  Drag one onto another card to join it there, or onto empty space to leave
+  that end free. A locked connection has no handles.
 - **Line and arrow styles:** select connections; the properties panel sets
   solid, dashed or dotted lines, thin, normal or bold width, curved, straight
   or right-angled paths, and the shape at each end (none, arrow, open arrow,

@@ -398,3 +398,27 @@ export function prunePoints(data: CanvasData): void {
   const named = new Set(data.edges.flatMap((e) => [e.fromNode, e.toNode]));
   data.nodes = data.nodes.filter((n) => !isPoint(n) || named.has(n.id));
 }
+
+/** Where a dragged end lands: a card at one of its sides, or a free end at a spot. */
+export type EndTarget = { node: string; side: Side } | { at: { x: number; y: number } };
+
+/**
+ * Moves one end of a connection to a card or to empty space, where it gets a new point. Returns
+ * false when nothing changes: a locked connection, or the card at its other end.
+ */
+export function rebind(data: CanvasData, edgeId: string, end: "from" | "to", target: EndTarget): boolean {
+  const edge = data.edges.find((e) => e.id === edgeId);
+  if (!edge || isLocked(edge)) return false;
+  const [node, side, other] = end === "from" ? (["fromNode", "fromSide", edge.toNode] as const) : (["toNode", "toSide", edge.fromNode] as const);
+  if ("node" in target) {
+    if (target.node === other || (target.node === edge[node] && target.side === edge[side])) return false;
+    edge[node] = target.node;
+    edge[side] = target.side;
+  } else {
+    const point = pointNodeAt(target.at);
+    data.nodes.push(point);
+    edge[node] = point.id;
+    delete edge[side];
+  }
+  return true;
+}

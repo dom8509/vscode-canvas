@@ -26,6 +26,7 @@ import {
   isPoint,
   pointNodeAt,
   prunePoints,
+  rebind,
   setLocked,
   isImagePath,
   isTextPath,
@@ -40,6 +41,7 @@ import {
   MAX_TEXT_SCALE,
   MIN_TEXT_SCALE,
 } from "../src/jsonCanvas";
+import type { EndTarget } from "../src/jsonCanvas";
 import type { DroppedItem, FileInfo, HostMessage, ImageData, WebviewMessage } from "../src/protocol";
 import {
   type Point,
@@ -736,6 +738,20 @@ function drawEdge(edge: CanvasEdge): void {
     labelsLayer.append(badge);
   }
 
+  if (!isLocked(edge)) {
+    // A round handle at each end, shown while the connection is selected: drag it to another card or to empty space.
+    for (const [end, at] of [["from", geo.start], ["to", geo.end]] as const) {
+      const h = document.createElement("div");
+      h.className = "end-handle";
+      h.dataset.id = edge.id;
+      h.dataset.end = end;
+      h.classList.toggle("selected", selection.has(edge.id));
+      h.style.left = `${at.x}px`;
+      h.style.top = `${at.y}px`;
+      labelsLayer.append(h);
+    }
+  }
+
   if (edge.label) {
     const label = document.createElement("div");
     label.className = "edge-label";
@@ -752,7 +768,7 @@ function drawEdge(edge: CanvasEdge): void {
 
 /** Shows a changed selection without redrawing, so the elements under the pointer stay the same (a double-click needs that). */
 function showSelection(): void {
-  world.querySelectorAll<HTMLElement>(".node, .edge, .edge-label, .edge-lock").forEach((el) => {
+  world.querySelectorAll<HTMLElement>(".node, .edge, .edge-label, .edge-lock, .end-handle").forEach((el) => {
     el.classList.toggle("selected", selection.has(el.dataset.id!));
   });
   updateColorbar();
@@ -1246,6 +1262,8 @@ type Drag =
   | { kind: "resize-many"; from: Rect; dx: Pull; dy: Pull; items: { node: CanvasNode; rect: Rect; scale: number }[]; others: Rect[]; changed: boolean }
   | { kind: "rotate"; node: CanvasNode; center: Point; startAngle: number; rotation: number }
   | { kind: "connect"; from: CanvasNode; side: Side; preview: SVGPathElement }
+  /** An end handle of a selected connection, dragged to another card or to empty space. */
+  | { kind: "rebind"; edge: CanvasEdge; end: "from" | "to"; preview: SVGPathElement }
   /** The arrow or line tool: from a pointer down on a card or the canvas. `drawing` once it moved 10 screen pixels. */
   | { kind: "edge"; start: Point; from: CanvasNode | undefined; client: Point; drawing: boolean; heads: "arrow" | "line"; preview: SVGPathElement }
   | { kind: "draw"; start: Point; shape: ShapeKind; preview: HTMLElement }
@@ -1295,6 +1313,18 @@ viewport.addEventListener("pointerdown", (e) => {
       others: snapCandidates(new Set(scaled.keys())),
       changed: false,
     };
+    viewport.setPointerCapture(e.pointerId);
+    return;
+  }
+
+  const endHandle = target.closest<HTMLElement>(".end-handle");
+  const handled = endHandle && edgeById(endHandle.dataset.id!);
+  if (handled && !isLocked(handled)) {
+    const preview = document.createElementNS(SVG_NS, "path");
+    preview.classList.add("preview");
+    edgesLayer.append(preview);
+    world.querySelector(`.edge[data-id="${CSS.escape(handled.id)}"]`)?.classList.add("rebinding");
+    drag = { kind: "rebind", edge: handled, end: endHandle.dataset.end as "from" | "to", preview };
     viewport.setPointerCapture(e.pointerId);
     return;
   }
@@ -1642,6 +1672,15 @@ viewport.addEventListener("pointermove", (e) => {
       if (over) nodeElement(over.id)?.classList.add("drop-target");
       break;
     }
+    case "rebind": {
+      const { target, other } = rebindTarget(drag, e, p);
+      const moved = "node" in target ? endOf(nodeById(target.node)!, target.side, other.at) : { at: target.at, side: null };
+      const [a, b] = drag.end === "from" ? [moved, other] : [other, moved];
+      drag.preview.setAttribute("d", edgePath(a.at, a.side, b.at, b.side, edgeStyle(drag.edge).pathStyle).d);
+      world.querySelectorAll(".node.drop-target").forEach((el) => el.classList.remove("drop-target"));
+      if ("node" in target) nodeElement(target.node)?.classList.add("drop-target");
+      break;
+    }
     case "connect": {
       const a = nodeAnchor(drag.from, drag.side);
       const over = nodeUnder(e.clientX, e.clientY);
@@ -1683,6 +1722,18 @@ function drawnEnds(d: { start: Point; from: CanvasNode | undefined }, e: Pointer
   const from = endGeometry(a).at;
   const b = drawnEnd(over, over ? p : freeEndAt(from, p, e), from);
   return { a, b, over };
+}
+
+/** Where a dragged end handle lands, and the end that stays. On the card at the other end it stays where it was. */
+function rebindTarget(d: { edge: CanvasEdge; end: "from" | "to" }, e: PointerEvent, p: Point) {
+  const [otherId, otherSide] = d.end === "from" ? [d.edge.toNode, d.edge.toSide] : [d.edge.fromNode, d.edge.fromSide];
+  const otherNode = nodeById(otherId)!;
+  const other = endOf(otherNode, otherSide, p);
+  const under = nodeUnder(e.clientX, e.clientY);
+  const onOther = under?.id === otherId;
+  const end = drawnEnd(onOther ? undefined : under, under ? p : freeEndAt(other.at, p, e), other.at);
+  const target: EndTarget = end.card ? { node: end.card.id, side: end.side } : { at: end.at };
+  return { target, other, onOther };
 }
 
 /** The node an end names in the file: its card, or a new point. */
@@ -1810,6 +1861,14 @@ function endDrag(e: PointerEvent): void {
       setEdgeStyle(edge, edgeDefaults);
       data.edges.push(edge);
       commit();
+      break;
+    }
+    case "rebind": {
+      d.preview.remove();
+      world.querySelectorAll(".node.drop-target").forEach((el) => el.classList.remove("drop-target"));
+      const { target, onOther } = rebindTarget(d, e, p);
+      if (!onOther && rebind(data, d.edge.id, d.end, target)) commit();
+      else render();
       break;
     }
     case "edge": {

@@ -534,6 +534,29 @@ button {
   filter: drop-shadow(0 0 3px var(--accent));
 }
 
+/* The ends of a selected connection: drag one to another card or to empty space. */
+.end-handle {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: var(--vscode-editor-background);
+  border: 2px solid var(--accent);
+  cursor: move;
+  display: none;
+  z-index: 3;
+}
+
+.end-handle.selected {
+  display: block;
+}
+
+.edge.rebinding {
+  opacity: 0.3;
+}
+
 .edge-label {
   position: absolute;
   transform: translate(-50%, -50%);
