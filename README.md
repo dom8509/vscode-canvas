@@ -108,11 +108,11 @@ open format Obsidian uses, so the files work in both.
   paste, duplicate, delete, the layer order, group selection, lock and zoom
   to selection; right-click the empty canvas for paste, select all and zoom
   to fit. Items that do not apply are greyed out; each shows its key.
-- **Layer order:** Ctrl/Cmd+] brings the selected cards one step forward,
-  Ctrl/Cmd+[ sends them one step back; add **Shift** to bring them to the
+- **Layer order:** **Ctrl/Cmd+]** brings the selected cards one step forward,
+  **Ctrl/Cmd+[** sends them one step back; add **Shift** to bring them to the
   front or send them to the back. Groups always stay behind the cards. The
   order is the order in the file, so Obsidian shows it the same.
-- **Lock:** Ctrl/Cmd+Shift+L, or *Lock* in the properties panel, locks the
+- **Lock:** **Ctrl/Cmd+Shift+L**, or *Lock* in the properties panel, locks the
   selected cards, groups and connections: they cannot be moved, resized,
   turned, edited, restyled or deleted, and a selection box skips them. Click
   one and press the key again to unlock it. A small lock shows on hover. A

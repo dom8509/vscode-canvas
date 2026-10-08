@@ -1271,7 +1271,8 @@ viewport.addEventListener("pointerdown", (e) => {
       scaled.set(n.id, n);
       if (n.type === "group") for (const c of childrenOf(n)) scaled.set(c.id, c);
     }
-    if ([...scaled.values()].some(isLocked)) return;
+    // A locked card stops the scaling; one inside a selected group goes along, as it does when the group moves.
+    if (selectedNodes().some(isLocked)) return;
     const items = [...scaled.values()].map((node) => ({ node, rect: { x: node.x, y: node.y, width: node.width, height: node.height }, scale: textScaleOf(node) }));
     drag = {
       kind: "resize-many",
@@ -1826,8 +1827,11 @@ document.addEventListener("keydown", (e) => {
   } else if (is("rectangle") || is("ellipse")) {
     setTool({ kind: "shape", shape: is("rectangle") ? "rectangle" : "ellipse" });
   } else if (is("card")) {
+    // Keep the letter out of the text field that opens.
+    e.preventDefault();
     addNode(textNodeAt(viewportCenter()), true);
   } else if (is("group")) {
+    e.preventDefault();
     addGroup();
   } else if (is("edit") && selection.size === 1) {
     e.preventDefault();
@@ -2193,7 +2197,8 @@ window.addEventListener("message", (e: MessageEvent<HostMessage>) => {
   const msg = e.data;
   switch (msg.type) {
     case "load": {
-      nudges.flush();
+      // A change from outside (undo from the menu, another editor) wins over a nudge not yet written.
+      nudges.cancel();
       try {
         data = parseCanvas(msg.text);
       } catch (err) {

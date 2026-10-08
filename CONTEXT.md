@@ -53,6 +53,8 @@ Obsidian shows all three as plain text cards.
 
 **Snap guide**: the thin line that shows a moved or resized card lining up with an edge or center of a card nearby. Within 6 screen pixels the card snaps to it; on an axis with no guide it snaps to the grid. Code: `snapGuides`.
 
+**Sticky style**: the color and look picked last in the properties panel. New cards, shapes and free text take what fits them, as new connections take the edge style picked last. Kept in the webview, never in the file. Code: `nodeDefaults`, `edgeDefaults`.
+
 **Paper**: the canvas background with its ink: light (white paper, dark ink) or dark. The setting `canvas.theme` picks it, or the VS Code theme does. Only the look; the file stays the same. Code and CSS say paper (`data-paper`), since "theme" is a word to avoid for drawing style.
 
 **Turn**: a card's rotation, clockwise in degrees, set with the turn handle. Saved as `rotation`.

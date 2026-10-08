@@ -35,6 +35,16 @@ describe("coalescer", () => {
     expect(commit).not.toHaveBeenCalled();
   });
 
+  it("drops a waiting commit on cancel", () => {
+    const commit = vi.fn();
+    const nudges = coalescer(commit, 500);
+    nudges.schedule();
+    nudges.cancel();
+    vi.advanceTimersByTime(1000);
+    nudges.flush();
+    expect(commit).not.toHaveBeenCalled();
+  });
+
   it("tells whether a commit is pending", () => {
     const nudges = coalescer(() => undefined, 500);
     expect(nudges.pending()).toBe(false);

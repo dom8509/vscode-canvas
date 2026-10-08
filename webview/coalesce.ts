@@ -5,6 +5,8 @@ export interface Coalescer {
   schedule(): void;
   /** Commits now if a commit is waiting. */
   flush(): void;
+  /** Drops a waiting commit. */
+  cancel(): void;
   pending(): boolean;
 }
 
@@ -22,6 +24,10 @@ export function coalescer(commit: () => void, delay: number): Coalescer {
       timer = setTimeout(flush, delay);
     },
     flush,
+    cancel() {
+      clearTimeout(timer);
+      timer = undefined;
+    },
     pending: () => timer !== undefined,
   };
 }

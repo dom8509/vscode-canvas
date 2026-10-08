@@ -45,7 +45,10 @@ describe("shortcuts", () => {
     // Ctrl+Shift+] types "}" on a US layout; on a German one, AltGr+9 types "]" and reads as Ctrl+Alt.
     expect(matchesShortcut("toFront", press("}", { ctrlKey: true, shiftKey: true, code: "BracketRight" }))).toBe(true);
     expect(matchesShortcut("forward", press("]", { ctrlKey: true, altKey: true, code: "Digit9" }))).toBe(true);
-    expect(matchesShortcut("forward", press("+", { ctrlKey: true, code: "BracketRight" }))).toBe(true);
+    expect(matchesShortcut("forward", press("*", { ctrlKey: true, code: "BracketRight" }))).toBe(true);
+    // On a German layout "+" sits where "]" is on a US one: Ctrl++ zooms in, it does not bring forward.
+    expect(matchesShortcut("zoomIn", press("+", { ctrlKey: true, code: "BracketRight" }))).toBe(true);
+    expect(matchesShortcut("forward", press("+", { ctrlKey: true, code: "BracketRight" }))).toBe(false);
     expect(matchesShortcut("forward", press("}", { ctrlKey: true, shiftKey: true, code: "BracketRight" }))).toBe(false);
   });
 });

@@ -89,13 +89,12 @@ export function tooltip(id: string, label = shortcut(id).label): string {
 
 /** The physical key (`KeyboardEvent.code`) on a US layout, for keys other layouts type differently. */
 function codeOf(key: string): string | undefined {
-  if (/^[A-Z]$/.test(key)) return `Key${key}`;
   if (/^[0-9]$/.test(key)) return `Digit${key}`;
-  return { "[": "BracketLeft", "]": "BracketRight", "=": "Equal", "-": "Minus" }[key];
+  return { "[": "BracketLeft", "]": "BracketRight" }[key];
 }
 
-/** Whether a key press is `keys`. */
-function matchesKeys(keys: string, e: KeyboardEvent): boolean {
+/** Whether a key press is `keys`, by the typed key, or else by the physical key. */
+function matchesKeys(keys: string, e: KeyboardEvent, byCode: boolean): boolean {
   const parts = keys.split(/\+(?!$)/);
   const key = parts.pop()!;
   const mod = parts.includes("Mod");
@@ -107,12 +106,14 @@ function matchesKeys(keys: string, e: KeyboardEvent): boolean {
   if (e.shiftKey !== shift) return false;
   // Letters and digits never take Alt; a sign may, when AltGr types it (Ctrl+Alt on Windows).
   if (byKey) return !e.altKey || !/^[a-z0-9]$/i.test(key);
-  return !e.altKey && e.code !== "" && e.code === codeOf(key);
+  return byCode && !e.altKey && e.code !== "" && e.code === codeOf(key);
 }
 
 /** Whether a key press is one of the keys of the shortcut `id`. */
 export function matchesShortcut(id: string, e: KeyboardEvent): boolean {
-  return shortcut(id).keys.some((k) => matchesKeys(k, e));
+  if (shortcut(id).keys.some((k) => matchesKeys(k, e, false))) return true;
+  // The physical key counts only when no shortcut has the typed key, so Ctrl++ on a German layout still zooms.
+  return !SHORTCUTS.some((s) => s.keys.some((k) => matchesKeys(k, e, false))) && shortcut(id).keys.some((k) => matchesKeys(k, e, true));
 }
 
 /** The shortcuts in their groups, in the order the shortcut overview shows them. */
