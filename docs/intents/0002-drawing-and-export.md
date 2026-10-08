@@ -36,8 +36,15 @@ stays valid JSON Canvas and still opens in Obsidian.
 - New tool **A** (arrow) and **L** (line) in the bottom toolbar.
 - Drag on the canvas to draw. An end dropped on a card binds to that card (and
   the side under the pointer); an end on empty space stays a free point.
+- Or click to pin the start, click again to pin each bend, and double-click
+  (or Enter) to end the line, as in Excalidraw. Each pin may sit on a card or
+  on empty space; the ends bind as above.
+- A line whose last pin lands on its first closes and becomes a custom shape,
+  as a closed pen stroke does (R4).
 - Holding Shift snaps the angle to 15° steps.
 - The new connection takes the sticky line and arrow style.
+- Dragging a card's dot to empty space also leaves a free end. Arrows do not
+  have to be pinned to cards.
 
 ### R2. Edit connection ends
 - A selected connection shows a handle at each end.
