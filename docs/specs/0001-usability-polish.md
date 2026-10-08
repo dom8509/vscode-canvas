@@ -2,7 +2,7 @@
 title: Usability polish
 intent: docs/intents/0001-usability-polish.md
 intent_commit: 19bf2a2
-status: draft
+status: accepted
 created: 2026-10-08
 policies:
   - CONTEXT.md@2084ef7
@@ -326,6 +326,7 @@ owner: dom8509
     Options: match `e.key` (works for `?`, unclear for AltGr brackets); match
     `e.code` `BracketLeft`/`BracketRight` (the physical US key, which is `ü`/`+`
     on German); offer both; or pick tldraw's other keys (Alt+Ctrl+arrows).
+    Decided: match both `e.key` and `e.code`.
 
 C2. Clashes with VS Code keys -- policy: intent _Risks_ -- owner: dom8509
     Ctrl+Shift+L (select all occurrences), Ctrl+[ and Ctrl+] (indent) and
@@ -334,6 +335,8 @@ C2. Clashes with VS Code keys -- policy: intent _Risks_ -- owner: dom8509
     checked on Windows, macOS and Linux.
     Options: check in Build and change any key that clashes; or add
     `contributes.keybindings` scoped to `activeCustomEditorId == canvas.editor`.
+    Decided: check in Build; add `contributes.keybindings` scoped to the
+    canvas editor only for a key that clashes.
 
 C3. Dark paper reverses a standing choice -- policy: `webview/style.css` ("white
 paper with dark ink, as in Excalidraw, whatever the VS Code theme") -- owner:
@@ -342,6 +345,7 @@ dom8509
     theme.
     Options: default `auto`, as the intent says; or default `light`, so nothing
     changes until a person opts in.
+    Decided: default `auto`.
 
 C4. A deferred commit can lose a nudge -- policy: AGENTS.md _The document is the
 state_ -- owner: dom8509
@@ -352,6 +356,7 @@ state_ -- owner: dom8509
     design), and accept the small window; flush on Ctrl+S too by catching it in
     the webview; or merge undo steps in the host by replacing the last edit,
     which VS Code does not offer.
+    Decided: the design's flushes, plus a flush on Ctrl/Cmd+S in the webview.
 
 C5. Lock and connections -- policy: intent R6 ("cannot be ... deleted") -- owner:
 dom8509
@@ -359,11 +364,14 @@ dom8509
     and a connection cannot outlive its card.
     Options: the locked connection goes with the card; or a card with a locked
     connection cannot be deleted until that connection is unlocked.
+    Decided: a card with a locked connection cannot be deleted until that
+    connection is unlocked.
 
 C6. Lock and paste/duplicate -- policy: none covers it -- owner: dom8509
     Copying a locked card: should the copy be locked?
     Options: keep `locked` on the copy (it is a property like any other); or drop
     it, as tldraw does, so a copy can be placed.
+    Decided: the copy is not locked.
 
 ## Out of scope
 

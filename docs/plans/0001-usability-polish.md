@@ -3,7 +3,7 @@ title: Usability polish
 spec: docs/specs/0001-usability-polish.md
 intent: docs/intents/0001-usability-polish.md
 spec_commit: 605d599
-status: draft
+status: accepted
 created: 2026-10-08
 ---
 
@@ -102,7 +102,7 @@ _Commit: "Lock a card, group or connection so it stays put"_
 - Moving an unlocked group carries locked cards inside it (spec _Decisions_;
   ADR candidate: write `docs/adr/0001-lock-and-groups.md` in this slice).
 - Lock badge on hover and when selected.
-- Settles C5 and C6 (see below).
+- Follows C5 and C6 (see below).
 - `CONTEXT.md`: **Lock**.
 
 ### 5. Context menu
@@ -182,7 +182,7 @@ _Commit: "The canvas follows the dark VS Code theme"_
 - Check by hand: preset colors 1 to 6, a hex color, shape fills and Rough.js
   strokes on both papers, and the high-contrast themes. The file does not
   change on a theme switch.
-- Settles C3. `CONTEXT.md`: **Paper**.
+- Follows C3. `CONTEXT.md`: **Paper**.
 
 ### 10. Sticky styles
 
@@ -206,19 +206,18 @@ _Commit: "Arrow-key nudges in a row undo in one step"_
   nothing pending does nothing.
 - **Green:** the nudge applies to `data`, redraws, and hands the commit to the
   coalescer. Any other `commit()`, a `load` message, `blur` and
-  `visibilitychange` flush first. Settles C4.
+  `visibilitychange` flush first, and so does Ctrl/Cmd+S (C4).
 - **Final check (R27):** read `README.md` _Using it_ against R1 to R26 and fill
   any gap; `npm run check`; run each feature once in the Extension Development
   Host on `sample/Welcome.canvas` in a light and a dark theme; open the edited
   canvas in Obsidian and back.
 
-## Concerns: what Build does unless the owner decides otherwise
+## Concerns: decided
 
-The spec leaves six concerns to dom8509. None was answered on the spec pull
-request. Build takes the choice below and lists it as a **deviation** in the
-build pull request, so it can be changed in review.
+The spec left six concerns to dom8509. dom8509 accepted the choices below on
+2026-10-08. Build follows them; they are not deviations.
 
-| | Concern | Build takes | Why |
+| | Concern | Decision | Why |
 | - | ------- | ----------- | --- |
 | C1 | `[`, `]`, `?` on non-US keyboards | Match both `e.key` and `e.code` | Works on US and German layouts; costs one line per key. |
 | C2 | Clash with VS Code keys | Check in slice 1 on Linux, add `contributes.keybindings` scoped to `activeCustomEditorId == 'canvas.editor'` only for a key that clashes | Keeps `package.json` small when nothing clashes. |
