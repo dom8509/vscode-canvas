@@ -80,6 +80,8 @@ import { icon, shapeIcon, title } from "./icons";
 import { SELECT, type Tool, showTool, toolbarHtml } from "./toolbar";
 import { matchesShortcut, tooltip } from "./shortcuts";
 import { isShortcutPanelOpen, shortcutPanelHtml, toggleShortcutPanel } from "./shortcutPanel";
+import { closeContextMenu, isContextMenuOpen, openContextMenu } from "./contextMenu";
+import { menuItems } from "./contextMenuItems";
 
 declare function acquireVsCodeApi(): {
   postMessage(msg: WebviewMessage): void;
@@ -1565,8 +1567,7 @@ document.addEventListener("keydown", (e) => {
     deleteSelection();
   } else if (is("selectAll")) {
     e.preventDefault();
-    data.nodes.forEach((n) => isLocked(n) || selection.add(n.id));
-    showSelection();
+    selectAll();
   } else if (is("duplicate")) {
     e.preventDefault();
     duplicateSelection();
@@ -1622,8 +1623,77 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
+// ---------------------------------------------------------------- context menu
+
+// A right-click selects what is under the pointer, unless it is selected already, and opens the menu for the selection.
+// VS Code's own webview menu stays away, except in text fields.
+document.addEventListener("contextmenu", (e) => {
+  const target = e.target as HTMLElement;
+  if (target.closest?.("input, textarea")) return;
+  e.preventDefault();
+  if (!loaded || !viewport.contains(target)) return;
+  const p = toWorld(e.clientX, e.clientY);
+  const nodeEl = target.closest<HTMLElement>(".node");
+  const node = nodeEl && nodeById(nodeEl.dataset.id!);
+  const onGroupBody = node?.type === "group" && !target.closest(".group-label") && insideGroupBody(node, p);
+  const edgeEl = target.closest<HTMLElement | SVGElement>(".edge, .edge-label");
+  const id = node && !onGroupBody ? node.id : (edgeEl as HTMLElement | null)?.dataset.id;
+  if (!id) {
+    selection.clear();
+  } else if (!selection.has(id)) {
+    selection.clear();
+    selection.add(id);
+  }
+  showSelection();
+  const selected = [...selection].map((id) => nodeById(id) ?? edgeById(id)).filter((i): i is CanvasNode | CanvasEdge => !!i);
+  openContextMenu(menuItems(selected, !!clipboard), e.clientX, e.clientY, (action) => runMenuAction(action, p));
+});
+
+function runMenuAction(action: string, at: Point): void {
+  switch (action) {
+    case "cut":
+    case "copy": {
+      const text = copySelection();
+      if (text) void navigator.clipboard?.writeText(text).catch(() => undefined);
+      if (action === "cut") deleteSelection();
+      return;
+    }
+    case "paste":
+      if (clipboard) paste(clipboard, at);
+      return;
+    case "duplicate":
+      return duplicateSelection();
+    case "delete":
+      return deleteSelection();
+    case "toFront":
+      return reorderSelection("front");
+    case "forward":
+      return reorderSelection("forward");
+    case "backward":
+      return reorderSelection("backward");
+    case "toBack":
+      return reorderSelection("back");
+    case "group":
+      return addGroup();
+    case "lock":
+      return toggleLock();
+    case "fitSelection":
+      return fitToContent(selectedNodes());
+    case "selectAll":
+      return selectAll();
+    case "fit":
+      return fitToContent();
+  }
+}
+
+function selectAll(): void {
+  data.nodes.forEach((n) => isLocked(n) || selection.add(n.id));
+  showSelection();
+}
+
 /** Escape closes an open menu first, then goes back to the select tool, then clears the selection. */
 function escape(): void {
+  if (isContextMenuOpen()) return closeContextMenu();
   if (isShortcutPanelOpen()) return toggleShortcutPanel(false);
   if (!headMenu.hidden) return closeHeadMenu();
   if (!shapeMenu.hidden) {
