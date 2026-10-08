@@ -327,3 +327,16 @@ export function resizedCorner(anchor: Point, width: number, height: number, dx: 
   const c = rotatePoint(fromCenter, anchor, turn);
   return { x: c.x - width / 2, y: c.y - height / 2 };
 }
+
+/** The upright box around a card turned by `turn` degrees around its center. */
+export function turnedBounds(r: Rect, turn: number): Rect {
+  if (!turn) return { x: r.x, y: r.y, width: r.width, height: r.height };
+  const c = center(r);
+  const corners = [
+    { x: r.x, y: r.y },
+    { x: r.x + r.width, y: r.y },
+    { x: r.x + r.width, y: r.y + r.height },
+    { x: r.x, y: r.y + r.height },
+  ].map((p) => rotatePoint(p, c, turn));
+  return boundsOf(corners.map((p) => ({ ...p, width: 0, height: 0 })))!;
+}
