@@ -22,6 +22,8 @@ import {
   nodeLook,
   rotationOf,
   isImageFile,
+  isLocked,
+  setLocked,
   isImagePath,
   isTextPath,
   newId,
@@ -179,7 +181,8 @@ app.innerHTML = `
       <h3>Style</h3>
       <div class="segmented">${DRAWING_STYLE_NAMES.map((v) => `<button data-drawing="${v}" title="${title(v)}">${drawingStyleIcon(v)}</button>`).join("")}</div>
     </section>
-    <section>
+    <section class="actions">
+      <button class="action" data-action="lock"></button>
       <button class="action danger" data-action="delete" title="${tooltip("delete")}">${icon("trash")}<span>Delete</span></button>
     </section>
     <div id="head-menu" hidden></div>
@@ -370,6 +373,7 @@ function renderNodes(): void {
     el.className = `node type-${node.type}`;
     el.dataset.id = node.id;
     el.classList.toggle("selected", selection.has(node.id));
+    el.classList.toggle("locked", isLocked(node));
     const color = cssColor(node.color);
     if (color) el.style.setProperty("--node-color", color);
     el.classList.toggle("colored", !!color);
@@ -402,6 +406,7 @@ function renderNodes(): void {
       nodesLayer.append(el);
     }
     drawOutline(el, node);
+    if (isLocked(node)) el.insertAdjacentHTML("beforeend", `<div class="lock-badge" title="Locked">${icon("lock")}</div>`);
 
     for (const side of SIDES) {
       const h = document.createElement("div");
@@ -642,6 +647,19 @@ function renderEdges(): void {
     }
     edgesLayer.append(g);
 
+    if (isLocked(edge)) {
+      const badge = document.createElement("div");
+      badge.className = "lock-badge edge-lock";
+      badge.dataset.id = edge.id;
+      badge.classList.toggle("selected", selection.has(edge.id));
+      badge.innerHTML = icon("lock");
+      badge.style.left = `${geo.mid.x}px`;
+      badge.style.top = `${geo.mid.y + (edge.label ? 22 : 0)}px`;
+      g.addEventListener("pointerenter", () => badge.classList.add("hover"));
+      g.addEventListener("pointerleave", () => badge.classList.remove("hover"));
+      labelsLayer.append(badge);
+    }
+
     if (edge.label) {
       const label = document.createElement("div");
       label.className = "edge-label";
@@ -659,7 +677,7 @@ function renderEdges(): void {
 
 /** Shows a changed selection without redrawing, so the elements under the pointer stay the same (a double-click needs that). */
 function showSelection(): void {
-  world.querySelectorAll<HTMLElement>(".node, .edge, .edge-label").forEach((el) => {
+  world.querySelectorAll<HTMLElement>(".node, .edge, .edge-label, .edge-lock").forEach((el) => {
     el.classList.toggle("selected", selection.has(el.dataset.id!));
   });
   updateColorbar();
@@ -668,6 +686,15 @@ function showSelection(): void {
 function updateColorbar(): void {
   props.hidden = selection.size === 0 || editing !== null;
   const items = [...selection].map((id) => nodeById(id) ?? edgeById(id)).filter(Boolean);
+  // A locked selection shows its look, but only the lock can be changed.
+  const locked = selectionLocked();
+  props.classList.toggle("locked", locked);
+  props.querySelectorAll<HTMLButtonElement | HTMLInputElement>("button, input").forEach((b) => {
+    b.disabled = locked && b.dataset.action !== "lock";
+  });
+  const lockButton = props.querySelector<HTMLElement>('[data-action="lock"]')!;
+  lockButton.innerHTML = `${icon(locked ? "unlock" : "lock")}<span>${locked ? "Unlock" : "Lock"}</span>`;
+  lockButton.title = tooltip("lock", locked ? "Unlock" : "Lock");
   const colors = new Set(items.map((i) => i!.color ?? ""));
   const current = colors.size === 1 ? [...colors][0]! : null;
   props.querySelectorAll<HTMLElement>("[data-color]").forEach((b) => {
@@ -753,6 +780,7 @@ function setSelectedNodeLook(look: Partial<NodeLook>): void {
   for (const id of selection) {
     const node = nodeById(id);
     if (node?.type !== "text" && node?.type !== "file") continue;
+    if (isLocked(node)) continue;
     const kind = nodeLook(node).shape;
     // Text settings fit every text card and note; a border not free text; shape and fill only shapes.
     const part: Partial<NodeLook> = node.type === "file" && isImagePath(node.file) ? {} : { fontSize: look.fontSize, fontFamily: look.fontFamily };
@@ -770,7 +798,7 @@ function setSelectedNodeLook(look: Partial<NodeLook>): void {
 function setSelectedDrawingStyle(name: DrawingStyleName): void {
   for (const id of selection) {
     const element = nodeById(id) ?? edgeById(id);
-    if (element) setDrawingStyle(element, name, canvasStyle());
+    if (element && !isLocked(element)) setDrawingStyle(element, name, canvasStyle());
   }
   commit();
 }
@@ -794,7 +822,7 @@ function setSelectedEdgeStyle(style: Partial<EdgeStyle>): void {
   edgeDefaults = { ...edgeDefaults, ...style };
   for (const id of selection) {
     const edge = edgeById(id);
-    if (edge) setEdgeStyle(edge, style);
+    if (edge && !isLocked(edge)) setEdgeStyle(edge, style);
   }
   commit();
 }
@@ -851,12 +879,37 @@ function addGroup(): void {
   renameGroup(group.id);
 }
 
+/**
+ * Deletes the selection, with the connections of the deleted cards. Locked elements stay, and so does
+ * a card with a locked connection: the connection cannot outlive it.
+ */
 function deleteSelection(): void {
+  const held = new Set(data.edges.filter(isLocked).flatMap((e) => [e.fromNode, e.toNode]));
+  const gone = new Set(selectedNodes().filter((n) => !isLocked(n) && !held.has(n.id)).map((n) => n.id));
+  const goneEdges = new Set(
+    data.edges.filter((e) => !isLocked(e) && (selection.has(e.id) || gone.has(e.fromNode) || gone.has(e.toNode))).map((e) => e.id),
+  );
+  if (!gone.size && !goneEdges.size) return;
+  data.nodes = data.nodes.filter((n) => !gone.has(n.id));
+  data.edges = data.edges.filter((e) => !goneEdges.has(e.id));
+  for (const id of [...gone, ...goneEdges]) selection.delete(id);
+  commit();
+}
+
+/** True when everything selected is locked. */
+function selectionLocked(): boolean {
+  const items = [...selection].map((id) => nodeById(id) ?? edgeById(id));
+  return items.length > 0 && items.every((i) => i && isLocked(i));
+}
+
+/** Locks the selection, or unlocks it when all of it is locked. */
+function toggleLock(): void {
   if (selection.size === 0) return;
-  data.nodes = data.nodes.filter((n) => !selection.has(n.id));
-  const ids = new Set(data.nodes.map((n) => n.id));
-  data.edges = data.edges.filter((e) => !selection.has(e.id) && ids.has(e.fromNode) && ids.has(e.toNode));
-  selection.clear();
+  const on = !selectionLocked();
+  for (const id of selection) {
+    const item = nodeById(id) ?? edgeById(id);
+    if (item) setLocked(item, on);
+  }
   commit();
 }
 
@@ -872,7 +925,7 @@ function setColor(color: string): void {
   if (selection.size === 0) return;
   for (const id of selection) {
     const item = nodeById(id) ?? edgeById(id);
-    if (!item) continue;
+    if (!item || isLocked(item)) continue;
     if (color) item.color = color;
     else delete item.color;
   }
@@ -899,6 +952,7 @@ function paste(fragment: { nodes: CanvasNode[]; edges: CanvasEdge[] }, at: Point
   selection.clear();
   for (const n of fragment.nodes) {
     const copy = { ...structuredClone(n), id: newId(), x: n.x + dx, y: n.y + dy };
+    setLocked(copy, false);
     map.set(n.id, copy.id);
     if (copy.type === "group") data.nodes.unshift(copy);
     else data.nodes.push(copy);
@@ -907,7 +961,10 @@ function paste(fragment: { nodes: CanvasNode[]; edges: CanvasEdge[] }, at: Point
   for (const e of fragment.edges) {
     const from = map.get(e.fromNode);
     const to = map.get(e.toNode);
-    if (from && to) data.edges.push({ ...structuredClone(e), id: newId(), fromNode: from, toNode: to });
+    if (!from || !to) continue;
+    const copy = { ...structuredClone(e), id: newId(), fromNode: from, toNode: to };
+    setLocked(copy, false);
+    data.edges.push(copy);
   }
   commit();
 }
@@ -936,7 +993,7 @@ function nodeElement(id: string): HTMLElement | null {
 function startEditing(id: string): void {
   const node = nodeById(id);
   const el = nodeElement(id);
-  if (!node || !el) return;
+  if (!node || !el || isLocked(node)) return;
   if (node.type === "group") return renameGroup(id);
   if (node.type === "file") return;
   editing = id;
@@ -1032,7 +1089,7 @@ function inlineInput(at: Point, value: string, onDone: (value: string) => void):
 
 function renameGroup(id: string): void {
   const group = nodeById(id);
-  if (!group || group.type !== "group") return;
+  if (!group || group.type !== "group" || isLocked(group)) return;
   inlineInput({ x: group.x, y: group.y - 34 }, group.label ?? "", (label) => {
     if (label) group.label = label;
     else delete group.label;
@@ -1043,7 +1100,7 @@ function renameGroup(id: string): void {
 function editEdgeLabel(id: string): void {
   const edge = edgeById(id);
   const geo = edge && edgeGeometry(edge);
-  if (!edge || !geo) return;
+  if (!edge || !geo || isLocked(edge)) return;
   inlineInput({ x: geo.mid.x - 80, y: geo.mid.y - 14 }, edge.label ?? "", (label) => {
     if (label) edge.label = label;
     else delete edge.label;
@@ -1111,7 +1168,7 @@ viewport.addEventListener("pointerdown", (e) => {
     return;
   }
 
-  if (node && target.classList.contains("resize")) {
+  if (node && !isLocked(node) && target.classList.contains("resize")) {
     // The corner or side opposite the handle stays where it is, also on a turned card.
     const dx = Number(target.dataset.dx) as Pull;
     const dy = Number(target.dataset.dy) as Pull;
@@ -1122,7 +1179,7 @@ viewport.addEventListener("pointerdown", (e) => {
     return;
   }
 
-  if (node && target.classList.contains("rotate")) {
+  if (node && !isLocked(node) && target.classList.contains("rotate")) {
     const c = center(node);
     drag = { kind: "rotate", node, center: c, startAngle: angleTo(c, p), rotation: rotationOf(node) };
     viewport.setPointerCapture(e.pointerId);
@@ -1142,8 +1199,10 @@ viewport.addEventListener("pointerdown", (e) => {
       selection.clear();
       selection.add(node.id);
     }
+    // Locked cards stay put; a group that moves carries every card inside it, locked or not.
     const moving = new Map<string, CanvasNode>();
     for (const n of selectedNodes()) {
+      if (isLocked(n)) continue;
       moving.set(n.id, n);
       if (n.type === "group") for (const c of childrenOf(n)) moving.set(c.id, c);
     }
@@ -1238,14 +1297,16 @@ viewport.addEventListener("pointermove", (e) => {
       marquee.hidden = false;
       selection.clear();
       drag.additive.forEach((id) => selection.add(id));
-      for (const n of data.nodes) if (rectsIntersect(r, n) && (n.type !== "group" || containsRect(r, n))) selection.add(n.id);
+      for (const n of data.nodes) {
+        if (!isLocked(n) && rectsIntersect(r, n) && (n.type !== "group" || containsRect(r, n))) selection.add(n.id);
+      }
       showSelection();
       break;
     }
     case "move": {
       let dx = p.x - drag.start.x;
       let dy = p.y - drag.start.y;
-      if (!drag.moved && Math.hypot(dx, dy) * view.zoom < 3) return;
+      if (!drag.nodes.length || (!drag.moved && Math.hypot(dx, dy) * view.zoom < 3)) return;
       drag.moved = true;
       if (!e.altKey) {
         // Snap the clicked card to the grid; the others keep their offsets to it.
@@ -1504,7 +1565,7 @@ document.addEventListener("keydown", (e) => {
     deleteSelection();
   } else if (is("selectAll")) {
     e.preventDefault();
-    data.nodes.forEach((n) => selection.add(n.id));
+    data.nodes.forEach((n) => isLocked(n) || selection.add(n.id));
     showSelection();
   } else if (is("duplicate")) {
     e.preventDefault();
@@ -1512,6 +1573,9 @@ document.addEventListener("keydown", (e) => {
   } else if (is("forward") || is("backward") || is("toFront") || is("toBack")) {
     e.preventDefault();
     reorderSelection(is("forward") ? "forward" : is("backward") ? "backward" : is("toFront") ? "front" : "back");
+  } else if (is("lock")) {
+    e.preventDefault();
+    toggleLock();
   } else if (is("escape")) {
     escape();
   } else if (is("help")) {
@@ -1550,6 +1614,7 @@ document.addEventListener("keydown", (e) => {
     const dx = key === "arrowleft" ? -step : key === "arrowright" ? step : 0;
     const dy = key === "arrowup" ? -step : key === "arrowdown" ? step : 0;
     for (const n of selectedNodes()) {
+      if (isLocked(n)) continue;
       n.x += dx;
       n.y += dy;
     }
@@ -1763,6 +1828,8 @@ app.addEventListener("click", (e) => {
       return addGroup();
     case "delete":
       return deleteSelection();
+    case "lock":
+      return toggleLock();
     case "zoom-in":
       return zoomBy(1.2);
     case "zoom-out":

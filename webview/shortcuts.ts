@@ -40,6 +40,7 @@ export const SHORTCUTS: Shortcut[] = [
   { id: "backward", label: "Send backward", group: "editing", keys: ["Mod+["] },
   { id: "toFront", label: "Bring to front", group: "editing", keys: ["Mod+Shift+]"] },
   { id: "toBack", label: "Send to back", group: "editing", keys: ["Mod+Shift+["] },
+  { id: "lock", label: "Lock or unlock", group: "editing", keys: ["Mod+Shift+L"] },
   { id: "nudge", label: "Nudge (Shift: further)", group: "editing", keys: [], hint: "Arrow keys" },
   { id: "undo", label: "Undo", group: "editing", keys: ["Mod+Z"] },
   { id: "redo", label: "Redo", group: "editing", keys: ["Mod+Shift+Z"] },

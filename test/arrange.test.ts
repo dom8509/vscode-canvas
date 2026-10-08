@@ -37,6 +37,12 @@ describe("reorder", () => {
     expect(ids(reorder(nodes, ["x", "c"], "front"))).toBe("G1 G2 a b d c");
   });
 
+  it("leaves locked cards where they are", () => {
+    const list = [card("a"), { ...card("b"), locked: true }, card("c")];
+    expect(ids(reorder(list, ["a", "b"], "front"))).toBe("b c a");
+    expect(ids(reorder(list, ["b"], "back"))).toBe("a b c");
+  });
+
   it("leaves the list it is given alone", () => {
     const list = [card("a"), card("b")];
     reorder(list, ["a"], "front");

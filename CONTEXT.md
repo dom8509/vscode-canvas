@@ -49,6 +49,8 @@ Obsidian shows all three as plain text cards.
 
 **Layer order**: which card lies on top of which. It is the order of `nodes` in the file: later is on top. Groups always lie behind every card and move only among groups.
 
+**Lock**: a card, group or connection that cannot be moved, resized, turned, edited, restyled or deleted. A click still selects it, so it can be unlocked. Saved as `"locked": true`, an extension property. A group that moves carries its locked cards ([ADR 1](docs/adr/0001-lock-and-groups.md)).
+
 **Turn**: a card's rotation, clockwise in degrees, set with the turn handle. Saved as `rotation`.
 
 **Text scale**: how much bigger free text is drawn after being scaled by a corner handle. Saved as `textScale`.

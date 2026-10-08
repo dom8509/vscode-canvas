@@ -91,6 +91,13 @@ open format Obsidian uses, so the files work in both.
   Ctrl/Cmd+[ sends them one step back; add **Shift** to bring them to the
   front or send them to the back. Groups always stay behind the cards. The
   order is the order in the file, so Obsidian shows it the same.
+- **Lock:** Ctrl/Cmd+Shift+L, or *Lock* in the properties panel, locks the
+  selected cards, groups and connections: they cannot be moved, resized,
+  turned, edited, restyled or deleted, and a selection box skips them. Click
+  one and press the key again to unlock it. A small lock shows on hover. A
+  card with a locked connection stays until you unlock the connection. A
+  group you move still carries the locked cards inside it. Copies are not
+  locked. Obsidian ignores the lock.
 - **Select:** click; Shift-click adds; drag on the empty canvas draws a
   selection box. Ctrl/Cmd+A selects everything.
 - **Navigate:** scroll to pan (Shift+scroll sideways), Ctrl/Cmd+scroll or

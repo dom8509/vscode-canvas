@@ -362,3 +362,16 @@ export function setRotation(node: CanvasNode, deg: number): void {
   if (r === 0) delete node.rotation;
   else node.rotation = r;
 }
+
+// ---------------------------------------------------------------- lock
+// A locked card, group or connection cannot be moved, resized, turned, edited,
+// restyled or deleted. Not part of JSON Canvas: Obsidian ignores it.
+
+export function isLocked(element: CanvasNode | CanvasEdge): boolean {
+  return element.locked === true;
+}
+
+export function setLocked(element: CanvasNode | CanvasEdge, on: boolean): void {
+  if (on) element.locked = true;
+  else delete element.locked;
+}

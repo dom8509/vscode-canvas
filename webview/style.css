@@ -819,6 +819,64 @@ button {
   height: 16px;
 }
 
+#props .actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+#props button:disabled,
+#props input:disabled,
+#props button:disabled:hover {
+  opacity: 0.4;
+  cursor: default;
+  background: transparent;
+}
+
+/* ------------------------------------------------------------ lock */
+
+/* A locked element cannot be resized or turned; a small lock shows on hover and when selected. */
+.node.locked > .resize,
+.node.selected.locked > .rotate {
+  display: none;
+}
+
+.lock-badge {
+  position: absolute;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  color: var(--muted);
+  pointer-events: none;
+  z-index: 3;
+}
+
+.node > .lock-badge {
+  right: -9px;
+  top: -9px;
+}
+
+.edge-lock {
+  transform: translate(-50%, -50%);
+}
+
+.lock-badge svg {
+  width: 11px;
+  height: 11px;
+}
+
+.node.locked:hover > .lock-badge,
+.node.locked.selected > .lock-badge,
+.edge-lock.hover,
+.edge-lock.selected {
+  display: flex;
+}
+
 /* Small pictures of edges on the buttons. */
 
 .style-icon {
