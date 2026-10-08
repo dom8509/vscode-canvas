@@ -2,7 +2,7 @@
 title: Drawing, free arrows and export
 intent: docs/intents/0002-drawing-and-export.md
 intent_commit: f2ac6b8
-status: draft
+status: accepted
 created: 2026-10-08
 policies:
   - CONTEXT.md@9e2ec77
